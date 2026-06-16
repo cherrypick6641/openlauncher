@@ -44,6 +44,10 @@ import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.service.MediaListenerService
 import kotlin.math.abs
 import kotlinx.coroutines.delay
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import kotlin.math.sin
 
 @Composable
 fun NowPlayingWidget(
@@ -90,7 +94,7 @@ fun NowPlayingWidget(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(4.dp))
+            .clip(RoundedCornerShape(20.dp))
     ) {
         // 1. CONDITIONAL VIEW TOGGLE
         if (selectedSource == "FM/AM Radio") {
@@ -181,6 +185,65 @@ fun NowPlayingWidget(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun WaveProgressIndicator(
+    progress: Float,
+    color: Color,
+    trackColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier) {
+
+        val centerY = size.height / 2f
+        val progressX = size.width * progress
+
+        // Línea gris restante
+        drawLine(
+            color = trackColor,
+            start = Offset(progressX, centerY),
+                 end = Offset(size.width, centerY),
+                 strokeWidth = 3.dp.toPx(),
+                 cap = StrokeCap.Round
+        )
+
+        // Onda naranja
+        var previousX = 0f
+        var previousY = centerY
+
+        val amplitude = 3.dp.toPx()
+        val wavelength = 20.dp.toPx()
+        val step = 1.dp.toPx()
+
+        var x = step
+
+        while (x <= progressX) {
+            val y = centerY +
+            amplitude * sin(
+                (x / wavelength) * (2f * Math.PI).toFloat()
+            )
+
+            drawLine(
+                color = color,
+                start = Offset(previousX, previousY),
+                     end = Offset(x, y),
+                     strokeWidth = 3.dp.toPx(),
+                     cap = StrokeCap.Round
+            )
+
+            previousX = x
+            previousY = y
+            x += step
+        }
+
+        // Círculo naranja
+        drawCircle(
+            color = color,
+            radius = 5.dp.toPx(),
+                   center = Offset(progressX, centerY)
+        )
     }
 }
 
@@ -708,11 +771,13 @@ private fun StandardMinimalPlayer(
                 // Progress + controls (bottom)
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     if (durationMs > 0) {
-                        LinearProgressIndicator(
-                            progress = { (positionMs.toFloat() / durationMs).coerceIn(0f, 1f) },
-                            modifier = Modifier.fillMaxWidth().height(2.dp),
-                            color = currentProgressColor,
-                            trackColor = currentProgressTrack
+                        WaveProgressIndicator(
+                            progress = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
+                                              color = currentProgressColor,
+                                              trackColor = currentProgressTrack,
+                                              modifier = Modifier
+                                              .fillMaxWidth()
+                                              .height(14.dp)
                         )
                         Row(
                             modifier = Modifier.fillMaxWidth(),
