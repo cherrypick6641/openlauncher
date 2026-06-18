@@ -20,7 +20,8 @@ data class LocationData(
     val longitude: Double,
     val altitude: Double,
     val accuracy: Float,
-    val speedMps: Float = 0f
+    val speedMps: Float = 0f,
+    val bearing: Float? = 0f
 )
 
 class LocationCompassManager(context: Context) {
