@@ -1,6 +1,8 @@
 package com.openlauncher.app.ui.widget
 
 import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
+import android.graphics.drawable.BitmapDrawable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -32,6 +34,7 @@ import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import java.io.File
 
 @Composable
 fun MapWidget(
@@ -41,17 +44,26 @@ fun MapWidget(
     isDayMode: Boolean = false,
     editMode: Boolean = false,
     onToggleProvider: () -> Unit,
-    onLongClick: () -> Unit,
-    modifier: Modifier = Modifier
+              onLongClick: () -> Unit,
+              modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    
-    // Configure OSMDroid user agent
+    var isFirstLoad by remember { mutableStateOf(true) }
+    var autoFollow by remember { mutableStateOf(true) }
+
+    // --- 1. CONFIGURACIÓN DE CACHÉ OFFLINE EXTENDIDO ---
     LaunchedEffect(Unit) {
-        org.osmdroid.config.Configuration.getInstance().userAgentValue = context.packageName
+        val osmConfig = org.osmdroid.config.Configuration.getInstance()
+        osmConfig.userAgentValue = context.packageName
+
+        val cacheDir = File(context.cacheDir, "osmdroid_tiles")
+        if (!cacheDir.exists()) cacheDir.mkdirs()
+            osmConfig.osmdroidTileCache = cacheDir
+
+            osmConfig.tileFileSystemCacheMaxBytes = 900L * 1024 * 1024
+            osmConfig.tileFileSystemCacheTrimBytes = 700L * 1024 * 1024
     }
 
-    // Keep track of MapView instance
     val mapView = remember {
         MapView(context).apply {
             setMultiTouchControls(true)
@@ -60,12 +72,25 @@ fun MapWidget(
         }
     }
 
-    // Add MapEventsOverlay for long press handling
+    // Listener para desactivar el auto-seguimiento si el usuario arrastra el mapa manualmente
+    DisposableEffect(mapView) {
+        val listener = object : org.osmdroid.events.MapListener {
+            override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                if (event?.source?.isAnimating == false) {
+                    autoFollow = false
+                }
+                return true
+            }
+            override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean = true
+        }
+        mapView.addMapListener(listener)
+        onDispose { mapView.removeMapListener(listener) }
+    }
+
+    // Overlay de eventos de presión larga
     DisposableEffect(mapView) {
         val receiver = object : org.osmdroid.events.MapEventsReceiver {
-            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean {
-                return false
-            }
+            override fun singleTapConfirmedHelper(p: GeoPoint?): Boolean = false
             override fun longPressHelper(p: GeoPoint?): Boolean {
                 onLongClick()
                 return true
@@ -73,42 +98,89 @@ fun MapWidget(
         }
         val eventsOverlay = org.osmdroid.views.overlay.MapEventsOverlay(receiver)
         mapView.overlays.add(eventsOverlay)
-        onDispose {
-            mapView.overlays.remove(eventsOverlay)
-        }
+        onDispose { mapView.overlays.remove(eventsOverlay) }
     }
 
-    // Manage Location Marker
-    val marker = remember {
+    // Indicador estilo Google Maps (Borde blanco + Centro Accent)
+    val marker = remember(accent) {
         Marker(mapView).apply {
-            val size = (16 * context.resources.displayMetrics.density).toInt()
+            val size = (32 * context.resources.displayMetrics.density).toInt()
             val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
             val canvas = android.graphics.Canvas(bitmap)
-            val paint = android.graphics.Paint().apply {
+
+            val paintDisc = Paint().apply {
+                isAntiAlias = true
+                color = Color.White.toArgb()
+                setShadowLayer(6f, 0f, 3f, android.graphics.Color.argb(80, 0, 0, 0))
+            }
+            val paintArrow = Paint().apply {
                 isAntiAlias = true
                 color = accent.toArgb()
             }
-            // Draw outer glow/halo
-            paint.alpha = 50
-            canvas.drawCircle(size / 2f, size / 2f, size / 2f, paint)
-            // Draw inner solid circle
-            paint.alpha = 255
-            canvas.drawCircle(size / 2f, size / 2f, size / 3f, paint)
-            
-            icon = android.graphics.drawable.BitmapDrawable(context.resources, bitmap)
+            val paintShadow = Paint().apply {
+                isAntiAlias = true
+                color = android.graphics.Color.argb(50, 0, 0, 0)
+                maskFilter = android.graphics.BlurMaskFilter(2f, android.graphics.BlurMaskFilter.Blur.NORMAL)
+            }
+
+            canvas.drawCircle(size / 2f, size / 2f, size / 2.4f, paintDisc)
+
+            val path = android.graphics.Path().apply {
+                moveTo(size / 2f, size / 3.5f)
+                lineTo(size / 1.35f, size / 1.5f)
+                lineTo(size / 2f, size / 1.7f)
+                lineTo(size / 3.7f, size / 1.5f)
+                close()
+            }
+
+            val shadowPath = android.graphics.Path(path).apply { offset(1f, 2f) }
+            canvas.drawPath(shadowPath, paintShadow)
+            canvas.drawPath(path, paintArrow)
+
+            icon = BitmapDrawable(context.resources, bitmap)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
         }
     }
 
-    // Auto-center tracking state
-    var autoFollow by remember { mutableStateOf(true) }
+    // --- 2. FUNCIÓN DE ZOOM DINÁMICO ---
+    fun getZoomByAccuracy(accuracyInMeters: Float?): Double {
+        if (accuracyInMeters == null || accuracyInMeters <= 0) return 17.0
+            return when {
+                accuracyInMeters < 15f -> 18.5
+                accuracyInMeters < 50f -> 17.0
+                accuracyInMeters < 150f -> 15.5
+                else -> 14.0
+            }
+    }
 
-    // Update Tile Source when provider changes
+    // Actualizar posición del marcador y aplicar auto-centrado con Zoom dinámico
+    LaunchedEffect(location, autoFollow) {
+        location?.let { loc ->
+            val geoPoint = GeoPoint(loc.latitude, loc.longitude)
+            marker.position = geoPoint
+
+            // SOLUCIÓN: Agregado ?: 0f para manejar de forma segura el Float? opcional
+            marker.rotation = loc.bearing ?: 0f
+
+            if (!mapView.overlays.contains(marker)) {
+                mapView.overlays.add(marker)
+            }
+
+            if (isFirstLoad || autoFollow) {
+                val targetZoom = getZoomByAccuracy(loc.accuracy)
+                mapView.controller.animateTo(geoPoint)
+                mapView.controller.setZoom(targetZoom)
+                isFirstLoad = false
+            }
+            mapView.invalidate()
+        }
+    }
+
+    // Proveedores de mapas (Google / OSM)
     LaunchedEffect(mapProvider) {
         if (mapProvider == MapProvider.GOOGLE) {
             val googleTiles = object : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
-                "GoogleRoads",
-                0, 20, 256, "",
+                "GoogleRoads", 0, 20, 256, "",
                 arrayOf(
                     "https://mt0.google.com/vt/lyrs=m",
                     "https://mt1.google.com/vt/lyrs=m",
@@ -129,35 +201,20 @@ fun MapWidget(
         }
     }
 
-    // Update Dark Mode Filter
+    // Modo noche/día
     LaunchedEffect(isDayMode) {
         if (isDayMode) {
             mapView.overlayManager.tilesOverlay.setColorFilter(null)
         } else {
             val matrix = floatArrayOf(
                 -0.6f,  0f,    0f,    0f, 200f,
-                 0f,   -0.6f,  0f,    0f, 200f,
-                 0f,    0f,   -0.6f,  0f, 200f,
-                 0f,    0f,    0f,    1.0f, 0f
+                0f,   -0.6f,  0f,    0f, 200f,
+                0f,    0f,   -0.6f,  0f, 200f,
+                0f,    0f,    0f,    1.0f, 0f
             )
             mapView.overlayManager.tilesOverlay.setColorFilter(ColorMatrixColorFilter(matrix))
         }
         mapView.invalidate()
-    }
-
-    // Update location marker and auto-follow
-    LaunchedEffect(location, autoFollow) {
-        if (location != null) {
-            val geoPoint = GeoPoint(location.latitude, location.longitude)
-            marker.position = geoPoint
-            if (!mapView.overlays.contains(marker)) {
-                mapView.overlays.add(marker)
-            }
-            if (autoFollow) {
-                mapView.controller.animateTo(geoPoint)
-            }
-            mapView.invalidate()
-        }
     }
 
     Box(modifier = modifier.clip(RoundedCornerShape(20.dp))) {
@@ -166,99 +223,111 @@ fun MapWidget(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Overlay UI
-        // Top-Left: Map Provider Toggle
+        // UI Overlay: Cambiar de proveedor
         Box(
             modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(10.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(Color.Black.copy(alpha = 0.6f))
-                .clickable { onToggleProvider() }
-                .padding(horizontal = 8.dp, vertical = 6.dp)
+            .align(Alignment.TopStart)
+            .padding(10.dp)
+            .clip(RoundedCornerShape(6.dp))
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable { onToggleProvider() }
+            .padding(horizontal = 8.dp, vertical = 6.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Map,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(14.dp)
-                )
+                Icon(Icons.Default.Map, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
                 Text(
                     text = if (mapProvider == MapProvider.GOOGLE) "GOOGLE" else "OSM",
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    style = MaterialTheme.typography.labelMedium
+                     color = Color.White,
+                     fontSize = 10.sp,
+                     style = MaterialTheme.typography.labelMedium
                 )
             }
         }
 
-        // Top-Right: Zoom Buttons
+        // UI Overlay: Botones de Zoom manual
+        // UI Overlay: Botones de Zoom manual
         Column(
             modifier = Modifier
-                .align(Alignment.TopEnd)
-                .padding(10.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
+            .align(Alignment.TopEnd)
+            .padding(10.dp),
+               verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
-            IconButton(
-                onClick = {
+            // Botón de Zoom In
+            Box(
+                modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable {
                     autoFollow = false
                     mapView.controller.zoomIn()
                 },
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Zoom In", tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(
+                    imageVector = Icons.Default.Add,
+                     contentDescription = "Zoom In",
+                     tint = Color.White,
+                     modifier = Modifier.size(16.dp)
+                )
             }
-            IconButton(
-                onClick = {
+
+            // Botón de Zoom Out
+            Box(
+                modifier = Modifier
+                .size(38.dp)
+                .clip(CircleShape)
+                .background(Color.Black.copy(alpha = 0.6f))
+                .clickable {
                     autoFollow = false
                     mapView.controller.zoomOut()
                 },
-                modifier = Modifier
-                    .size(32.dp)
-                    .clip(CircleShape)
-                    .background(Color.Black.copy(alpha = 0.6f))
+                contentAlignment = Alignment.Center
             ) {
-                Icon(Icons.Default.Remove, contentDescription = "Zoom Out", tint = Color.White, modifier = Modifier.size(16.dp))
+                Icon(
+                    imageVector = Icons.Default.Remove,
+                     contentDescription = "Zoom Out",
+                     tint = Color.White,
+                     modifier = Modifier.size(16.dp)
+                )
             }
         }
 
-        // Bottom-Right: Recenter/Auto-follow Button
+        // UI Overlay: Botón de Recentrar / GPS
         IconButton(
             onClick = {
                 autoFollow = true
-                if (location != null) {
-                    mapView.controller.animateTo(GeoPoint(location.latitude, location.longitude))
+                location?.let {
+                    val geoPoint = GeoPoint(it.latitude, it.longitude)
+                    val targetZoom = getZoomByAccuracy(it.accuracy)
+                    mapView.controller.animateTo(geoPoint)
+                    mapView.controller.setZoom(targetZoom)
                 }
             },
             modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .padding(10.dp)
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.6f))
+            .align(Alignment.BottomEnd)
+            .padding(10.dp)
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(Color.Black.copy(alpha = 0.6f))
         ) {
             Icon(
                 imageVector = Icons.Default.GpsFixed,
-                contentDescription = "Center on location",
-                tint = Color.White,
-                modifier = Modifier.size(16.dp)
+                 contentDescription = "Center on location",
+                 tint = Color.White,
+                 modifier = Modifier.size(16.dp)
             )
         }
 
-        // In editMode, block input to MapView so parent gestures (drag, resize, context menu) work perfectly.
         if (editMode) {
             Box(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Transparent)
-                    .pointerInput(Unit) {}
+                .fillMaxSize()
+                .background(Color.Transparent)
+                .pointerInput(Unit) {}
             )
         }
     }
