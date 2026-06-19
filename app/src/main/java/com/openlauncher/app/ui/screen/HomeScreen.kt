@@ -47,7 +47,7 @@ import java.util.Calendar
 import com.openlauncher.app.util.LocationData
 import androidx.compose.foundation.gestures.detectTapGestures
 
-private val WIDGET_RADIUS = RoundedCornerShape(0.dp)
+private val WIDGET_RADIUS = RoundedCornerShape(20.dp)
 
 private data class WidgetTypeInfo(
     val id: String,
@@ -145,12 +145,12 @@ fun HomeScreen(
     val widgetBg     = when {
         isDayMode    -> Color(0xFFFFFFFF)
         hasWallpaper -> Color(0xCC000000)
-        else         -> Color.Black.copy(alpha = 0.0f)
+        else         -> Color.Black.copy(alpha = 0.35f)
     }
     val widgetBorder = when {
         isDayMode    -> Color(0xFFCCCCCC)
         hasWallpaper -> Color(0x22FFFFFF)
-        else         -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.0f)
+        else         -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.08f)
     }
     val headerTextColor   = if (isDayMode) Color(0xFF111111) else accent
     val statusIconColor   = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
@@ -174,15 +174,14 @@ fun HomeScreen(
                 .padding(horizontal = 20.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 1. Formateadores separados para aplicar estilos diferentes
             val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
             val dateFormatter = remember { java.text.SimpleDateFormat("EEE, MMM d", java.util.Locale.getDefault()) }
 
-            // 2. Estados para la hora y la fecha
+            // Estados para la hora y la fecha
             var timeText by remember { mutableStateOf(timeFormatter.format(java.util.Date())) }
             var dateText by remember { mutableStateOf(dateFormatter.format(java.util.Date())) }
 
-            // 3. Actualización constante en tiempo real
+            // Actualización constante en tiempo real
             LaunchedEffect(Unit) {
                 while (true) {
                     val now = java.util.Date()
@@ -192,7 +191,7 @@ fun HomeScreen(
                 }
             }
 
-            // 4. Contenedor horizontal para la hora y la fecha juntas
+            // Contenedor horizontal para la hora y la fecha juntas
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp) // Espacio entre hora y fecha
@@ -215,13 +214,7 @@ fun HomeScreen(
                      letterSpacing = 0.5.sp
                 )
             }
-        /*    Text(
-                text          = settings.vehicleName.uppercase(),
-                style         = MaterialTheme.typography.titleLarge,
-                color         = headerTextColor,
-                letterSpacing = 3.sp,
-                fontSize      = 14.sp
-            ) */
+
             Spacer(Modifier.weight(1f))
             AnimatedVisibility(visible = isWifi, enter = fadeIn(), exit = fadeOut()) {
                 Icon(Icons.Default.Wifi, "WiFi", tint = statusIconColor, modifier = Modifier.size(16.dp))

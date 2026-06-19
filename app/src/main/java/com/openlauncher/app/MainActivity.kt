@@ -141,7 +141,7 @@ class MainActivity : ComponentActivity() {
                         }
 
                         val isBottomBar    = settings.sidebarPosition == SidebarPosition.BOTTOM
-                        val layoutDivColor = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1A1A1A)
+                        val layoutDivColor = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF000000)
 
                         val sidebarContent: @Composable () -> Unit = {
                             val sidebarDensity = Density(

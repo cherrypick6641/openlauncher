@@ -99,7 +99,7 @@ fun NowPlayingWidget(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(4.dp))
     ) {
         // 1. CONDITIONAL VIEW TOGGLE
         if (selectedSource == "FM/AM Radio") {
@@ -265,8 +265,8 @@ fun WeatherWidgetAudio(
 
     val isMetric = settings.unitSystem.name == "METRIC"
 
-    val contentColor = if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
-    val subColor     = if (isDayMode) Color(0xFF888888) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
+    val contentColor = Color.White
+    val subColor     = Color(0xFF888888)
 
     // Obtenemos la fecha de hoy del sistema
     val todayString = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)

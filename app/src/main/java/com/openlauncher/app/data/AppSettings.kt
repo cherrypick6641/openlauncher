@@ -51,8 +51,8 @@ data class ShortcutConfig(
     val customIconOverride: DefaultShortcutIcon? = null
 )
 
-const val GRID_COLS = 3
-const val GRID_ROWS = 2
+const val GRID_COLS = 6
+const val GRID_ROWS = 4
 
 data class WidgetConfig(
     val id: String,          // "CLOCK" | "WEATHER" | "TELEMETRY" | "NOW_PLAYING"
@@ -65,7 +65,7 @@ data class WidgetConfig(
 
 data class AppSettings(
     val vehicleName: String = "MY CAR",
-    val accentColor: Int = Color.White.toArgb(),
+    val accentColor: Int = Color(0xFFFF7600).toArgb(),
     val backgroundColor: Int = Color.Black.toArgb(),
     val fontColor: Int = Color.White.toArgb(),
     val wallpaperUri: String = "",
@@ -74,9 +74,9 @@ data class AppSettings(
     val uiScale: Float = 1.0f,
     val clockStyle: ClockStyle = ClockStyle.DIGITAL,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
-    val appFont: AppFont = AppFont.JETBRAINS_MONO,
-    val showWeather: Boolean = true,
-    val showClock: Boolean = true,
+    val appFont: AppFont = AppFont.SYSTEM,
+    val showWeather: Boolean = false,
+    val showClock: Boolean = false,
     val showTelemetry: Boolean = true,
     val showNowPlaying: Boolean = true,
     val shortcuts: List<ShortcutConfig> = defaultShortcuts(),
@@ -105,7 +105,7 @@ data class AppSettings(
     val speedometerDigitalOnly: Boolean = false,
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,
     val useCustomBackgroundColor: Boolean = false,
-    val showMap: Boolean = false,
+    val showMap: Boolean = true,
     val mapProvider: MapProvider = MapProvider.OSM
 )
 
@@ -117,10 +117,9 @@ fun defaultShortcuts() = listOf(
 )
 
 fun defaultWidgetLayout() = listOf(
-    WidgetConfig("CLOCK",       gridX = 0, gridY = 0, spanX = 1, spanY = 1),
-    WidgetConfig("WEATHER",     gridX = 1, gridY = 0, spanX = 1, spanY = 1),
-    WidgetConfig("TELEMETRY",   gridX = 2, gridY = 0, spanX = 1, spanY = 2),
-    WidgetConfig("NOW_PLAYING", gridX = 0, gridY = 1, spanX = 2, spanY = 1)
+    WidgetConfig("MAP",       gridX = 0, gridY = 0, spanX = 4, spanY = 4),
+    WidgetConfig("NOW_PLAYING",     gridX = 4, gridY = 0, spanX = 2, spanY = 3),
+    WidgetConfig("TELEMETRY", gridX = 4, gridY = 3, spanX = 2, spanY = 1)
 )
 
 fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
