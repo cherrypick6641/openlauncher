@@ -6,6 +6,10 @@ import android.content.Intent
 import android.database.ContentObserver
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.wifi.WifiManager
+import android.telephony.PhoneStateListener
+import android.telephony.SignalStrength
+import android.telephony.TelephonyManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
@@ -118,8 +122,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _shortcutPickerSlot.value = null
     }
 
-    // ── CarPlay / Android Auto picker ─────────────────────────────────────────
-    enum class AppPickerTarget { CARPLAY, ANDROID_AUTO, PIP, RADIO }
+    // ── CarPlay / Android Auto / Autostart picker ─────────────────────────────
+    enum class AppPickerTarget { CARPLAY, ANDROID_AUTO, PIP, RADIO, AUTOSTART_1, AUTOSTART_2, AUTOSTART_3, AUTOSTART_4 }
 
     private val _appPickerTarget = MutableStateFlow<AppPickerTarget?>(null)
     val carPlayPickerActive: StateFlow<Boolean> = MutableStateFlow(false) // kept for compat
@@ -145,12 +149,36 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _nav.value = NavDestination.APP_LIBRARY
     }
 
+    fun startAutostartPicker(slot: Int) {
+        _appPickerTarget.value = when (slot) {
+            0 -> AppPickerTarget.AUTOSTART_1
+            1 -> AppPickerTarget.AUTOSTART_2
+            2 -> AppPickerTarget.AUTOSTART_3
+            3 -> AppPickerTarget.AUTOSTART_4
+            else -> AppPickerTarget.AUTOSTART_1
+        }
+        _nav.value = NavDestination.APP_LIBRARY
+    }
+
+    private fun assignAutostart(index: Int, packageName: String) {
+        updateSettings {
+            val list = autostartPackages.toMutableList()
+            while (list.size <= index) list.add("")
+            list[index] = packageName
+            copy(autostartPackages = list)
+        }
+    }
+
     fun assignPickerApp(app: AppInfo) {
         when (_appPickerTarget.value) {
             AppPickerTarget.CARPLAY      -> updateSettings { copy(carPlayPackage = app.packageName) }
             AppPickerTarget.ANDROID_AUTO -> updateSettings { copy(androidAutoPackage = app.packageName) }
             AppPickerTarget.PIP          -> updateSettings { copy(pipAppPackage = app.packageName) }
             AppPickerTarget.RADIO        -> updateSettings { copy(radioPackage = app.packageName) }
+            AppPickerTarget.AUTOSTART_1  -> assignAutostart(0, app.packageName)
+            AppPickerTarget.AUTOSTART_2  -> assignAutostart(1, app.packageName)
+            AppPickerTarget.AUTOSTART_3  -> assignAutostart(2, app.packageName)
+            AppPickerTarget.AUTOSTART_4  -> assignAutostart(3, app.packageName)
             null -> {}
         }
         _appPickerTarget.value = null
@@ -161,6 +189,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun clearAndroidAutoApp()  { updateSettings { copy(androidAutoPackage = "") } }
     fun clearPipApp()          { updateSettings { copy(pipAppPackage = "") } }
     fun clearRadioApp()        { updateSettings { copy(radioPackage = "") } }
+    fun clearAutostartApp(index: Int) {
+        updateSettings {
+            val list = autostartPackages.toMutableList()
+            if (index in list.indices) {
+                list[index] = ""
+                copy(autostartPackages = list)
+            } else this
+        }
+    }
 
     fun updateWidgetConfig(id: String, spanX: Int, spanY: Int) {
         updateSettings {
@@ -247,6 +284,18 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun toggleMapProvider() {
         updateSettings {
             copy(mapProvider = if (mapProvider == MapProvider.OSM) MapProvider.GOOGLE else MapProvider.OSM)
+        }
+    }
+
+    fun setMapType(type: com.openlauncher.app.data.MapType) {
+        updateSettings {
+            copy(mapType = type)
+        }
+    }
+
+    fun toggleTraffic() {
+        updateSettings {
+            copy(showTraffic = !showTraffic)
         }
     }
 
@@ -361,7 +410,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
             }
-        intent?.let { app.startActivity(it) }
+        intent?.let { 
+            runCatching {
+                app.startActivity(it)
+            }.onFailure { e ->
+                android.util.Log.e("LauncherVM", "Failed to launch app: $packageName", e)
+            }
+        }
     }
 
     // ── Now Playing ───────────────────────────────────────────────────────────
@@ -455,6 +510,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                     // INTENTAR TRAER DE INTERNET (Hay Wi-Fi/Datos)
                     val resp = WeatherApi.service.getForecast(lat, lon, temperatureUnit = "celsius")
                     val daily = resp.dailyData
+                    val current = resp.currentWeather
 
                     if (daily != null) {
                         val daysList = daily.dates.mapIndexed { index, date ->
@@ -466,7 +522,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                             )
                         }
 
-                        val nuevoEstado = com.openlauncher.app.model.WeatherState(
+                        val nuevoEstado = WeatherState(
+                            currentTemperature = current?.temperature,
                             forecastDays = daysList,
                                 isLoading = false,
                                 error = null
@@ -482,14 +539,15 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         _weatherError.value = null
                     } // CORREGIDO: Se eliminó el caracter '/' sobrante que causaba el error de sintaxis
                 } catch (e: Exception) {
-                    // MODALIDAD OFFLINE: Si falla internet (no hay Wi-Fi), cargamos del caché
+                    // MODALIDAD OFFLINE: Si falla internet, cargamos del caché
                     val jsonGuardado = sharedPrefs.getString("cached_state", null)
                     if (!jsonGuardado.isNullOrEmpty()) {
                         // CORREGIDO: Casteo explícito seguro para evitar la confusión de GSON con Map.Entry
-                        val estadoRecuperado = gson.fromJson(jsonGuardado, com.openlauncher.app.model.WeatherState::class.java) as com.openlauncher.app.model.WeatherState
+                        val estadoRecuperado = gson.fromJson(jsonGuardado, WeatherState::class.java) as WeatherState
 
                         // CORREGIDO: Reconstruimos el estado clonando únicamente los días para evitar invocar 'currentTemperature'
-                        _weather.value = com.openlauncher.app.model.WeatherState(
+                        _weather.value = WeatherState(
+                            currentTemperature = estadoRecuperado.currentTemperature,
                             forecastDays = estadoRecuperado.forecastDays,
                                 isLoading = false,
                                 error = null
@@ -527,10 +585,33 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun stopLocationUpdates()  = locationMgr.stop()
 
     // ── Connectivity ──────────────────────────────────────────────────────────
-    private val _isWifi = MutableStateFlow(false)
-    private val _isData = MutableStateFlow(false)
-    val isWifi: StateFlow<Boolean> = _isWifi
-    val isData: StateFlow<Boolean> = _isData
+    private val _isConnected = MutableStateFlow(false)
+    val isConnected: StateFlow<Boolean> = _isConnected
+
+    private val _wifiLevel = MutableStateFlow(-1) // 0-4, -1 = disconnected
+    val wifiLevel: StateFlow<Int> = _wifiLevel
+
+    private val _mobileLevel = MutableStateFlow(-1) // 0-4, -1 = disconnected
+    val mobileLevel: StateFlow<Int> = _mobileLevel
+
+    private var telephonyManager: TelephonyManager? = null
+    private var phoneStateListener: PhoneStateListener? = null
+
+    private fun startSignalListeners() {
+        telephonyManager = getApplication<Application>().getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
+        phoneStateListener = object : PhoneStateListener() {
+            override fun onSignalStrengthsChanged(signalStrength: SignalStrength?) {
+                super.onSignalStrengthsChanged(signalStrength)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    _mobileLevel.value = signalStrength?.level ?: -1
+                } else {
+                    // Fallback for API < 23 if necessary, but Junsun is Android 10
+                    _mobileLevel.value = -1 
+                }
+            }
+        }
+        telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_SIGNAL_STRENGTHS)
+    }
 
     fun refreshMedia() {
         MediaListenerService.requestRefresh()
@@ -731,20 +812,32 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun refreshConnectivity() {
         val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+        val wm = getApplication<Application>().applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager
+        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val caps = cm.getNetworkCapabilities(cm.activeNetwork)
-            _isWifi.value = caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true
-            _isData.value = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
+            val network = cm.activeNetwork
+            val caps = cm.getNetworkCapabilities(network)
+            _isConnected.value = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            
+            // Wifi Strength
+            if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
+                val info = wm.connectionInfo
+                _wifiLevel.value = WifiManager.calculateSignalLevel(info.rssi, 5)
+            } else {
+                _wifiLevel.value = -1
+            }
         } else {
-            // activeNetwork requires API 23 — legacy path for Android 5.x head units
             @Suppress("DEPRECATION")
             val info = cm.activeNetworkInfo
-            @Suppress("DEPRECATION")
             val connected = info?.isConnected == true
-            @Suppress("DEPRECATION")
-            val type = info?.type
-            _isWifi.value = connected && type == ConnectivityManager.TYPE_WIFI
-            _isData.value = connected && type == ConnectivityManager.TYPE_MOBILE
+            _isConnected.value = connected
+            
+            if (connected && info?.type == ConnectivityManager.TYPE_WIFI) {
+                val wifiInfo = wm.connectionInfo
+                _wifiLevel.value = WifiManager.calculateSignalLevel(wifiInfo.rssi, 5)
+            } else {
+                _wifiLevel.value = -1
+            }
         }
     }
 
@@ -753,11 +846,13 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         locationMgr.stop()
         radioObserver?.let { getApplication<Application>().contentResolver.unregisterContentObserver(it) }
         radioObserver = null
+        telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
     }
 
     init {
         loadInstalledApps()
         refreshConnectivity()
+        startSignalListeners()
         if (hasSzchoicewayMcu) startHardwareRadioObserver()
         // Fetch weather on first location fix, then every 30 minutes.
         // The minute ticker covers the parked case where no location updates arrive.

@@ -69,7 +69,7 @@ fun NowPlayingWidget(
     modifier: Modifier = Modifier,
     isEditing: Boolean = false,
     isDayMode: Boolean = false,
-    hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState? = null,
+    hardwareRadio: LauncherViewModel.HardwareRadioState? = null,
     onLaunchHardwareRadio: () -> Unit = {},
     onStopHardwareRadio: () -> Unit = {},
     onRadioSeekUp: () -> Unit = {},
@@ -378,7 +378,7 @@ fun WeatherWidgetAudio(
 private fun RadioDeck(
     accent: Color,
     isDayMode: Boolean,
-    hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState?,
+    hardwareRadio: LauncherViewModel.HardwareRadioState?,
     onLaunchHardwareRadio: () -> Unit,
     onStopHardwareRadio: () -> Unit,
     onRadioSeekUp: () -> Unit,
@@ -760,7 +760,7 @@ private fun StandardMinimalPlayer(
                             }
                         }
                         if (hasCarPlay && hasAutoApp) {
-                            androidx.compose.material3.VerticalDivider(
+                            VerticalDivider(
                                 modifier = Modifier.fillMaxHeight().padding(vertical = 16.dp),
                                 color = if (isDayMode) Color(0xFFBBBBBB) else Color(0xFF1E1E1E)
                             )

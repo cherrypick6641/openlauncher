@@ -33,7 +33,7 @@ fun WeatherWidget(
     Box(modifier = modifier) {
         if (todayWeather != null) {
 
-            // Lógica inteligente de temperatura (Actual con WiFi / Promedio sin WiFi)
+            // Lógica inteligente de temperatura (Actual si está disponible / Promedio como fallback)
             val tempAImprimir = if (state.currentTemperature != null) {
                 if (metric) "${Math.round(state.currentTemperature)}°C"
                     else "${Math.round(state.currentTemperature * 9.0 / 5.0 + 32.0)}°F"

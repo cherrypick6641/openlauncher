@@ -1,7 +1,7 @@
 package com.openlauncher.app.model
 
 data class WeatherState(
-    val currentTemperature: Double? = null, // Guardará la actual (si hay Wi-Fi)
+    val currentTemperature: Double? = null, // Guardará la actual
     val forecastDays: List<DailyForecast> = emptyList(),
                         val isLoading: Boolean = false,
                         val error: String? = null
@@ -13,7 +13,7 @@ data class DailyForecast(
     val minTemperatureCelsius: Double,
     val weatherCode: Int
 ) {
-    // Si no hay Wi-Fi, este método calculará y mostrará el promedio del día
+    // Si no hay conexión, este método calculará y mostrará el promedio del día
     fun temperatureDisplay(metric: Boolean): String {
         val promedio = (minTemperatureCelsius + maxTemperatureCelsius) / 2.0
         return if (metric) "${Math.round(promedio)}°C"

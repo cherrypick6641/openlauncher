@@ -171,12 +171,15 @@ fun SpeedometerWidgetMaps(
 fun MapWidget(
     location: LocationData?,
     mapProvider: MapProvider,
+    mapType: com.openlauncher.app.data.MapType = com.openlauncher.app.data.MapType.ROADMAP,
+    showTraffic: Boolean = false,
     accent: Color,
     isDayMode: Boolean = false,
     editMode: Boolean = false,
     onToggleProvider: () -> Unit,
-              onLongClick: () -> Unit,
-              modifier: Modifier = Modifier
+    onToggleTraffic: () -> Unit = {},
+    onLongClick: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
     var isFirstLoad by remember { mutableStateOf(true) }
@@ -185,16 +188,16 @@ fun MapWidget(
     val settings by launcherViewModel.settings.collectAsState()
     val isMetric = settings.unitSystem.name == "METRIC"
 
-    // --- Auxiliar para verificar estado del Wi-Fi ---
-    fun isWifiConnected(ctx: Context): Boolean {
+    // --- Auxiliar para verificar estado de la conexión ---
+    fun isConnected(ctx: Context): Boolean {
         val cm = ctx.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
         val network = cm?.activeNetwork ?: return false
         val capabilities = cm.getNetworkCapabilities(network) ?: return false
-        return capabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)
+        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
     }
 
-    // Monitoreamos reactivamente si hay Wi-Fi disponible
-    var hasWifi by remember { mutableStateOf(isWifiConnected(context)) }
+    // Monitoreamos reactivamente si hay conexión disponible
+    var isConnected by remember { mutableStateOf(isConnected(context)) }
 
     // --- 1. CONFIGURACIÓN DE CACHÉ OFFLINE EXTENDIDO ---
     LaunchedEffect(Unit) {
@@ -336,12 +339,12 @@ fun MapWidget(
             }
     }
 
-    // Actualizar posición, comportamiento de red y precarga por WiFi
+    // Actualizar posición, comportamiento de red y precarga por conexión
     LaunchedEffect(location, autoFollow) {
-        hasWifi = isWifiConnected(context)
+        isConnected = isConnected(context)
 
         // CAMBIO CLAVE: Cambia dinámicamente el comportamiento del hardware de osmdroid
-        if (hasWifi) {
+        if (isConnected) {
             mapView.setUseDataConnection(true) // Permite descargar libremente desde Internet
         } else {
             mapView.setUseDataConnection(false) // Fuerza el modo 100% Offline (bloquea peticiones HTTP de osmdroid)
@@ -369,8 +372,8 @@ fun MapWidget(
                 isFirstLoad = false
             }
 
-            // PRECARGA ACTIVA: Ocurre solo si detectamos Wi-Fi activo
-            if (hasWifi) {
+            // PRECARGA ACTIVA: Ocurre solo si detectamos conexión activa
+            if (isConnected) {
                 val currentZoom = mapView.zoomLevelDouble.toInt()
                 TileSourceFactory.MAPNIK.let { _ ->
                     val pTiles = org.osmdroid.tileprovider.cachemanager.CacheManager(mapView)
@@ -395,15 +398,22 @@ fun MapWidget(
     }
 
     // Proveedores de mapas (Google / OSM)
-    LaunchedEffect(mapProvider) {
+    LaunchedEffect(mapProvider, mapType, showTraffic) {
         if (mapProvider == MapProvider.GOOGLE) {
+            val layerCode = when (mapType) {
+                com.openlauncher.app.data.MapType.ROADMAP -> "m"
+                com.openlauncher.app.data.MapType.SATELLITE -> "s"
+                com.openlauncher.app.data.MapType.HYBRID -> "y"
+                com.openlauncher.app.data.MapType.TERRAIN -> "p"
+            }
+            val layer = if (showTraffic) "$layerCode,traffic" else layerCode
             val googleTiles = object : org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase(
                 "GoogleRoads", 0, 20, 256, "",
                 arrayOf(
-                    "https://mt0.google.com/vt/lyrs=m",
-                    "https://mt1.google.com/vt/lyrs=m",
-                    "https://mt2.google.com/vt/lyrs=m",
-                    "https://mt3.google.com/vt/lyrs=m"
+                    "https://mt0.google.com/vt/lyrs=$layer",
+                    "https://mt1.google.com/vt/lyrs=$layer",
+                    "https://mt2.google.com/vt/lyrs=$layer",
+                    "https://mt3.google.com/vt/lyrs=$layer"
                 )
             ) {
                 override fun getTileURLString(pMapTileIndex: Long): String {
@@ -419,16 +429,20 @@ fun MapWidget(
         }
     }
 
-    // Modo noche/día
+    // Modo noche/día (Estilo Android Auto Dark)
     LaunchedEffect(isDayMode) {
         if (isDayMode) {
             mapView.overlayManager.tilesOverlay.setColorFilter(null)
         } else {
+            // Matriz optimizada para imitar el look de Android Auto / Google Maps Night
+            // 1. Invertimos ligeramente los colores (-0.8f)
+            // 2. Aplicamos un tinte azulado profundo (Offset 40 en Rojo, 50 en Verde, 70 en Azul)
+            // 3. Ajustamos el brillo para que no sea excesivamente oscuro pero sí confortable
             val matrix = floatArrayOf(
-                -0.6f,  0f,    0f,    0f, 200f,
-                0f,   -0.6f,  0f,    0f, 200f,
-                0f,    0f,   -0.6f,  0f, 200f,
-                0f,    0f,    0f,    1.0f, 0f
+                -0.8f, 0f, 0f, 0f, 220f,
+                0f, -0.8f, 0f, 0f, 225f,
+                0f, 0f, -0.8f, 0f, 245f,
+                0f, 0f, 0f, 1.0f, 0f
             )
             mapView.overlayManager.tilesOverlay.setColorFilter(ColorMatrixColorFilter(matrix))
         }
@@ -446,23 +460,76 @@ fun MapWidget(
             modifier = Modifier
             .align(Alignment.TopStart)
             .padding(10.dp)
-            .clip(RoundedCornerShape(6.dp))
-            .background(Color.Black.copy(alpha = 0.6f))
+            .clip(MaterialTheme.shapes.medium)
+            .background(Color.Black.copy(alpha = 0.7f))
             .clickable { onToggleProvider() }
-            .padding(horizontal = 8.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 Icon(Icons.Default.Map, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-                // Agregamos un indicador visual "(OFFLINE)" en el texto por si estás en ruta sin Wi-Fi
+                // Agregamos un indicador visual "(OFFLINE)" en el texto por si estás en ruta sin conexión
                 Text(
-                    text = (if (mapProvider == MapProvider.GOOGLE) "GOOGLE" else "OSM") + (if (!hasWifi) " (OFFLINE)" else ""),
-                     color = if (hasWifi) Color.White else Color.Yellow,
+                    text = (if (mapProvider == MapProvider.GOOGLE) "GOOGLE" else "OSM") + 
+                           (if (mapProvider == MapProvider.GOOGLE) " (${mapType.name})" else "") +
+                           (if (showTraffic && mapProvider == MapProvider.GOOGLE) " + TRAFFIC" else "") + 
+                           (if (!isConnected) " (OFFLINE)" else ""),
+                     color = if (isConnected) Color.White else Color.Yellow,
                      fontSize = 10.sp,
                      style = MaterialTheme.typography.labelMedium
                 )
+            }
+        }
+
+        // Botón de Tráfico (Solo visible si es Google)
+        if (mapProvider == MapProvider.GOOGLE) {
+            Row(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 50.dp, start = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Togle Tráfico
+                Box(
+                    modifier = Modifier
+                        .clip(MaterialTheme.shapes.small)
+                        .background(if (showTraffic) accent.copy(alpha = 0.8f) else Color.Black.copy(alpha = 0.7f))
+                        .clickable { onToggleTraffic() }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "TRAFFIC",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                }
+
+                // Ciclo de Tipo de Mapa
+                Box(
+                    modifier = Modifier
+                        .clip(MaterialTheme.shapes.small)
+                        .background(Color.Black.copy(alpha = 0.7f))
+                        .clickable {
+                            val next = when (mapType) {
+                                com.openlauncher.app.data.MapType.ROADMAP -> com.openlauncher.app.data.MapType.SATELLITE
+                                com.openlauncher.app.data.MapType.SATELLITE -> com.openlauncher.app.data.MapType.HYBRID
+                                com.openlauncher.app.data.MapType.HYBRID -> com.openlauncher.app.data.MapType.TERRAIN
+                                com.openlauncher.app.data.MapType.TERRAIN -> com.openlauncher.app.data.MapType.ROADMAP
+                            }
+                            launcherViewModel.setMapType(next)
+                        }
+                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                ) {
+                    Text(
+                        text = "VIEW",
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    )
+                }
             }
         }
 
@@ -475,9 +542,9 @@ fun MapWidget(
         ) {
             Box(
                 modifier = Modifier
-                .size(42.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.6f))
+                .background(Color.Black.copy(alpha = 0.7f))
                 .clickable {
                     autoFollow = false
                     mapView.controller.zoomIn()
@@ -488,15 +555,15 @@ fun MapWidget(
                     imageVector = Icons.Default.Add,
                      contentDescription = "Zoom In",
                      tint = Color.White,
-                     modifier = Modifier.size(16.dp)
+                     modifier = Modifier.size(18.dp)
                 )
             }
 
             Box(
                 modifier = Modifier
-                .size(42.dp)
+                .size(44.dp)
                 .clip(CircleShape)
-                .background(Color.Black.copy(alpha = 0.6f))
+                .background(Color.Black.copy(alpha = 0.7f))
                 .clickable {
                     autoFollow = false
                     mapView.controller.zoomOut()
@@ -507,7 +574,7 @@ fun MapWidget(
                     imageVector = Icons.Default.Remove,
                      contentDescription = "Zoom Out",
                      tint = Color.White,
-                     modifier = Modifier.size(16.dp)
+                     modifier = Modifier.size(18.dp)
                 )
             }
         }
@@ -541,16 +608,16 @@ fun MapWidget(
             },
             modifier = Modifier
             .align(Alignment.BottomEnd)
-            .padding(10.dp)
-            .size(32.dp)
+            .padding(12.dp)
+            .size(40.dp)
             .clip(CircleShape)
-            .background(Color.Black.copy(alpha = 0.6f))
+            .background(Color.Black.copy(alpha = 0.7f))
         ) {
             Icon(
                 imageVector = Icons.Default.GpsFixed,
                  contentDescription = "Center on location",
                  tint = Color.White,
-                 modifier = Modifier.size(16.dp)
+                 modifier = Modifier.size(18.dp)
             )
         }
 

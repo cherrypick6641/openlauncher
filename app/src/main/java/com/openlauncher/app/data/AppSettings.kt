@@ -5,11 +5,11 @@ import androidx.compose.ui.graphics.toArgb
 
 enum class ClockStyle { DIGITAL, ANALOG }
 enum class UnitSystem { METRIC, IMPERIAL }
-enum class AppFont { SYSTEM, JETBRAINS_MONO, SOURCE_CODE_PRO }
 enum class DayNightMode { DARK, LIGHT, AUTO, SYSTEM }
 enum class SidebarPosition { LEFT, RIGHT, BOTTOM }
 enum class GradientDirection { TOP_TO_BOTTOM, LEFT_TO_RIGHT, DIAGONAL, RADIAL }
 enum class MapProvider { OSM, GOOGLE }
+enum class MapType { ROADMAP, SATELLITE, HYBRID, TERRAIN }
 
 enum class DefaultShortcutIcon {
     NONE,
@@ -74,7 +74,6 @@ data class AppSettings(
     val uiScale: Float = 1.0f,
     val clockStyle: ClockStyle = ClockStyle.DIGITAL,
     val unitSystem: UnitSystem = UnitSystem.METRIC,
-    val appFont: AppFont = AppFont.SYSTEM,
     val showWeather: Boolean = false,
     val showClock: Boolean = false,
     val showTelemetry: Boolean = true,
@@ -106,7 +105,11 @@ data class AppSettings(
     val gradientDirection: GradientDirection = GradientDirection.DIAGONAL,
     val useCustomBackgroundColor: Boolean = false,
     val showMap: Boolean = true,
-    val mapProvider: MapProvider = MapProvider.OSM
+    val mapProvider: MapProvider = MapProvider.OSM,
+    val mapType: MapType = MapType.ROADMAP,
+    val showTraffic: Boolean = false,
+    val autostartPackages: List<String> = emptyList(),
+    val autostartDelay: Int = 2
 )
 
 fun defaultShortcuts() = listOf(
