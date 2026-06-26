@@ -187,7 +187,11 @@ class MainActivity : ComponentActivity() {
                                     onShortcutClick = { slot ->
                                         val shortcut = settings.shortcuts[slot]
                                         if (shortcut.packageName.isNotEmpty()) {
-                                            vm.launchApp(shortcut.packageName)
+                                            if (settings.showPip) {
+                                                vm.updateSettings { copy(pipAppPackage = shortcut.packageName) }
+                                            } else {
+                                                vm.launchApp(shortcut.packageName)
+                                            }
                                         }
                                     },
                                     onShortcutLongPress  = { slot -> vm.startShortcutPicker(slot) },

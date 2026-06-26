@@ -262,6 +262,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "TRIP_TRACKER" -> copy(showTripTracker = true)
                 "SOUNDBOARD"  -> copy(showSoundboard = true)
                 "MAP" -> copy(showMap = true)
+                "PIP" -> copy(showPip = true)
                 else          -> this
             }
             val idx       = layout.indexOfFirst { it.id == id }
@@ -312,6 +313,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "TRIP_TRACKER" -> copy(showTripTracker = false)
                 "SOUNDBOARD"  -> copy(showSoundboard = false)
                 "MAP" -> copy(showMap = false)
+                "PIP" -> copy(showPip = false)
                 else          -> this
             }
         }

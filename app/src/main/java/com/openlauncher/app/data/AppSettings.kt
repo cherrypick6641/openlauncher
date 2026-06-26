@@ -136,6 +136,7 @@ fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
     if (showTripTracker) add("TRIP_TRACKER")
     if (showSoundboard) add("SOUNDBOARD")
     if (showMap) add("MAP")
+    if (showPip) add("PIP")
 }
 
 /**

@@ -13,16 +13,28 @@ android {
         applicationId  = "com.openlauncher.app"
         minSdk         = 21
         targetSdk      = 36
-        versionCode    = 8
-        versionName    = "1.1"
+        versionCode    = 9
+        versionName    = "1.2"
+    }
+
+    signingConfigs {
+        create("aosp") {
+            // Standard AOSP test keys configuration
+            // Requires 'platform.jks' in the app directory
+            storeFile = file("platform.jks")
+            storePassword = "android"
+            keyAlias = "fytplatform"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
         debug {
-            // Default signing config for normal device testing (restores app visibility)
+            signingConfig = signingConfigs.getByName("aosp")
         }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("aosp")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"

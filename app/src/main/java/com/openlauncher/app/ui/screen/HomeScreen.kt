@@ -35,6 +35,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import kotlin.math.roundToInt
 import com.openlauncher.app.data.AppSettings
+import com.openlauncher.app.data.activeWidgetIds
 import com.openlauncher.app.data.MapProvider
 import com.openlauncher.app.data.ClockStyle
 import com.openlauncher.app.data.computeWidgetMove
@@ -66,7 +67,8 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("VITALS",      "VITALS",      Icons.Default.Dns,           "Head Unit Health / Vitals"),
     WidgetTypeInfo("TRIP_TRACKER", "TRIP TRACKER", Icons.Default.Map,          "Trip logs & stats"),
     WidgetTypeInfo("SOUNDBOARD",  "SOUNDBOARD",  Icons.Default.Piano,         "Custom sound pads"),
-    WidgetTypeInfo("MAP", "MAP", Icons.Default.Map, "Live GPS map")
+    WidgetTypeInfo("MAP", "MAP", Icons.Default.Map, "Live GPS map"),
+    WidgetTypeInfo("PIP", "PIP", Icons.Default.Cast, "Picture in Picture")
 )
 
 private fun canAddWidget(settings: AppSettings): Boolean {
@@ -81,6 +83,7 @@ private fun canAddWidget(settings: AppSettings): Boolean {
         if (settings.showTripTracker) add("TRIP_TRACKER")
         if (settings.showSoundboard) add("SOUNDBOARD")
         if (settings.showMap) add("MAP")
+        if (settings.showPip) add("PIP")
     }
     val activeWidgets = settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
     val occupied = buildSet<Pair<Int, Int>> {
@@ -474,6 +477,7 @@ private fun WidgetItem(
             "TRIP_TRACKER" -> TripTrackerWidget(location = location, isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC, accent = accent, isDayMode = isDayMode, modifier = Modifier.fillMaxSize())
             "SOUNDBOARD" -> SoundboardWidget(pads = settings.soundboardPads, accent = accent, isDayMode = isDayMode, isEditing = editMode, onUpdatePad = onUpdateSoundPad, modifier = Modifier.fillMaxSize())
             "MAP" -> MapWidget(location = location, mapProvider = settings.mapProvider, mapType = settings.mapType, showTraffic = settings.showTraffic, accent = accent, isDayMode = isDayMode, editMode = editMode, onToggleProvider = onToggleMapProvider, onToggleTraffic = onToggleTraffic, onLongClick = { onLongClick(w.id) }, modifier = Modifier.fillMaxSize())
+            "PIP" -> PipWidget(packageName = settings.pipAppPackage, modifier = Modifier.fillMaxSize())
         }
 
         val label = when (w.id) {
@@ -628,7 +632,7 @@ private fun WidgetLibraryDialog(settings: AppSettings, accent: Color, isDayMode:
     val dialogBorder = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1E1E1E)
     val titleColor = if (isDayMode) Color(0xFF495057) else Color(0xFF555555)
     val closeColor = if (isDayMode) Color(0xFF495057) else Color(0xFF444444)
-    val activeIds = remember(settings) { buildSet { if (settings.showClock) add("CLOCK"); if (settings.showWeather) add("WEATHER"); if (settings.showNowPlaying) add("NOW_PLAYING"); if (settings.showTelemetry) add("TELEMETRY"); if (settings.showAltimeter) add("ALTIMETER"); if (settings.showSpeedometer) add("SPEEDOMETER"); if (settings.showVitals) add("VITALS"); if (settings.showTripTracker) add("TRIP_TRACKER"); if (settings.showSoundboard) add("SOUNDBOARD"); if (settings.showMap) add("MAP") } }
+    val activeIds = remember(settings) { settings.activeWidgetIds() }
     val canAdd = canAddWidget(settings)
     Dialog(onDismissRequest = onDismiss) {
         Column(modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(dialogBg).border(1.dp, dialogBorder, RoundedCornerShape(4.dp)).padding(16.dp).widthIn(min = 320.dp, max = 520.dp)) {
