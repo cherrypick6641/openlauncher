@@ -39,7 +39,6 @@ import com.openlauncher.app.util.LocationData
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
 import com.openlauncher.app.data.MapProvider
-import com.openlauncher.app.data.DailyData
 import com.google.gson.Gson
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
@@ -268,15 +267,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             val idx       = layout.indexOfFirst { it.id == id }
             val newLayout = if (idx >= 0) layout.toMutableList().also { list ->
                 val w = list[idx]
-                // Try to keep the widget's previous span; if no free area fits it,
-                // fall back to 1×1 at the free cell so it can't overlap neighbors
-                val area = if (w.spanX > 1 || w.spanY > 1) freeAreaIn(layout, activeIds, w.spanX, w.spanY) else null
+                val targetSpanX = if (id == "PIP") 4 else w.spanX
+                val targetSpanY = if (id == "PIP") 4 else w.spanY
+                
+                val area = if (targetSpanX > 1 || targetSpanY > 1) freeAreaIn(layout, activeIds, targetSpanX, targetSpanY) else null
                 list[idx] = if (area != null)
-                    w.copy(enabled = true, gridX = area.first, gridY = area.second)
+                    w.copy(enabled = true, gridX = area.first, gridY = area.second, spanX = targetSpanX, spanY = targetSpanY)
                 else
                     w.copy(enabled = true, gridX = cell_.first, gridY = cell_.second, spanX = 1, spanY = 1)
             } else {
-                layout + com.openlauncher.app.data.WidgetConfig(id, cell_.first, cell_.second)
+                val span = if (id == "PIP") 4 else 1
+                layout + com.openlauncher.app.data.WidgetConfig(id, cell_.first, cell_.second, spanX = span, spanY = span)
             }
             withShow.copy(widgetLayout = newLayout)
         }
@@ -302,7 +303,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun removeWidget(id: String) {
         updateSettings {
-            when (id) {
+            val withShowRemoved = when (id) {
                 "CLOCK"       -> copy(showClock = false)
                 "WEATHER"     -> copy(showWeather = false)
                 "NOW_PLAYING" -> copy(showNowPlaying = false)
@@ -316,6 +317,12 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 "PIP" -> copy(showPip = false)
                 else          -> this
             }
+            
+            // Explicitly disable the widget in the layout list as well
+            val newLayout = withShowRemoved.widgetLayout.map { w ->
+                if (w.id == id) w.copy(enabled = false) else w
+            }
+            withShowRemoved.copy(widgetLayout = newLayout)
         }
     }
 

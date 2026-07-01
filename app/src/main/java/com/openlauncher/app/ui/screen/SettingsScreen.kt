@@ -32,7 +32,6 @@ import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.UnitSystem
 import com.openlauncher.app.ui.theme.LocalDayMode
-import com.openlauncher.app.util.SunriseSunset
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import com.openlauncher.app.ui.components.ColorPickerDialog
@@ -190,7 +189,7 @@ fun SettingsScreen(
                     )
                 }
             )
-            SettingsDivider()
+            /*SettingsDivider()
             SettingsButton(
                 label    = "Draw Over Other Apps",
                 sublabel = if (canDrawOverlays) "Granted — PIP overlay enabled" else "Required for PIP floating window",
@@ -208,7 +207,7 @@ fun SettingsScreen(
                         }
                     }
                 }
-            )
+            )*/
             SettingsDivider()
             SettingsButton(
                 label    = "Location Access",
@@ -772,6 +771,25 @@ fun SettingsScreen(
 
         // ── Maintenance ──────────────────────────────────────────────────────
         SettingsSection("Maintenance") {
+            SettingsButton(
+                label = "View Activity Logs",
+                sublabel = "Debug info for PIP and system events",
+                icon = Icons.Default.Description,
+                accent = accent,
+                onClick = {
+                    val logFile = com.openlauncher.app.util.FileLogger.getLogFilePath(context)
+                    val intent = Intent(Intent.ACTION_VIEW).apply {
+                        setDataAndType(Uri.parse("content://com.openlauncher.app.provider/logs"), "text/plain")
+                        // Simplified for now: user can just check /Android/data/com.openlauncher.app/files/launcher_logs.txt
+                        // I'll just show a toast or dialog with the path
+                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    android.widget.Toast.makeText(context, "Logs at: $logFile", android.widget.Toast.LENGTH_LONG).show()
+                }
+            )
+            
+            SettingsDivider()
+
             Spacer(Modifier.height(8.dp))
             Button(
                 onClick  = { showResetDialog = true },
@@ -789,7 +807,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(32.dp))
 
         Text(
-            text          = "v1.2  ·  Made by David Lam  ·  2026",
+            text          = "v1.3  ·  Made by David Lam modded by Cherrypick6641  ·  2026",
             color         = if (isDayMode) Color(0xFFAAAAAA) else Color(0xFF2A2A2A),
             fontSize      = 10.sp,
             letterSpacing = 1.sp,

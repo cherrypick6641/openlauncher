@@ -8,6 +8,8 @@ import android.view.ViewGroup;
 /**
  * Stub class for ActivityView to allow compilation.
  * This class is hidden in the Android SDK but present on devices.
+ * 
+ * Update: StateCallback is a class on some devices, not an interface.
  */
 public class ActivityView extends ViewGroup {
     public ActivityView(Context context) { super(context); }
@@ -17,10 +19,10 @@ public class ActivityView extends ViewGroup {
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {}
 
-    public interface StateCallback {
-        void onActivityViewReady(ActivityView view);
-        void onActivityViewDestroyed(ActivityView view);
-        void onTaskMovedToFront(int taskId);
+    public abstract static class StateCallback {
+        public abstract void onActivityViewReady(ActivityView view);
+        public abstract void onActivityViewDestroyed(ActivityView view);
+        public abstract void onTaskMovedToFront(int taskId);
     }
 
     public void setCallback(StateCallback callback) {}

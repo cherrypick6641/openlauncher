@@ -29,7 +29,6 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -42,11 +41,11 @@ import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.ui.theme.LocalDayMode
 import kotlin.math.roundToInt
 
-private val ICON_SIZE   = 24.dp
-private val SHORTCUT_ICON_SIZE = 34.dp
-private val SHORTCUT_SLOT_SIZE = 64.dp
-private val NAV_SLOT_SIZE = 48.dp
-private val SIDEBAR_W   = 72.dp
+private val ICON_SIZE   = 36.dp
+private val SHORTCUT_ICON_SIZE = 48.dp
+private val SHORTCUT_SLOT_SIZE = 56.dp
+private val NAV_SLOT_SIZE = 42.dp
+private val SIDEBAR_W   = 60.dp
 
 @Composable
 fun Sidebar(
@@ -100,7 +99,7 @@ fun Sidebar(
 
     val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
     val dateFormatter = remember { java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()) }
-    val dayFormatter  = remember { java.text.SimpleDateFormat("d", java.util.Locale.getDefault()) }
+    val dayFormatter  = remember { java.text.SimpleDateFormat("dd/MM", java.util.Locale.getDefault()) }
 
     var timeText by remember { mutableStateOf(timeFormatter.format(java.util.Date())) }
     var dateText by remember { mutableStateOf(dateFormatter.format(java.util.Date())) }
@@ -131,7 +130,7 @@ fun Sidebar(
                     4 -> Icons.Filled.SignalCellular4Bar
                     else -> Icons.Filled.SignalCellular0Bar
                 }
-                Icon(mobileIcon, null, tint = statusIconColor, modifier = Modifier.size(16.dp))
+                Icon(mobileIcon, null, tint = statusIconColor, modifier = Modifier.size(20.dp))
             }
 
             // Wifi Signal Icon (only if connected)
@@ -143,7 +142,7 @@ fun Sidebar(
                     4 -> Icons.Filled.Wifi
                     else -> Icons.Filled.SignalWifi0Bar
                 }
-                Icon(wifiIcon, null, tint = statusIconColor, modifier = Modifier.size(16.dp))
+                Icon(wifiIcon, null, tint = statusIconColor, modifier = Modifier.size(20.dp))
             }
         }
     }
@@ -157,24 +156,24 @@ fun Sidebar(
                 text = timeText,
                 color = if (isDayMode) Color.Black else Color.White,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                fontSize = 16.sp
+                fontSize = 18.sp
             )
             Text(
                 text = dateText.uppercase(),
                 color = if (isDayMode) Color(0xFF666666) else Color(0xFF999999),
-                fontSize = 10.sp,
+                fontSize = 14.sp,
                 fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
             )
             Text(
                 text = dayText,
                 color = if (isDayMode) Color(0xFF666666) else Color(0xFF999999),
-                fontSize = 10.sp
+                fontSize = 14.sp
             )
         }
     }
 
     val editButtons: @Composable () -> Unit = {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        val content = @Composable {
             if (editMode) {
                 IconButton(onClick = onOpenWidgetLibrary, modifier = Modifier.size(NAV_SLOT_SIZE)) {
                     Icon(Icons.Default.Dashboard, null, tint = statusIconColor, modifier = Modifier.size(20.dp))
@@ -183,6 +182,12 @@ fun Sidebar(
             IconButton(onClick = onToggleEditMode, modifier = Modifier.size(NAV_SLOT_SIZE)) {
                 Icon(Icons.Default.Edit, null, tint = if (editMode) accent else statusIconColor, modifier = Modifier.size(20.dp))
             }
+        }
+
+        if (isHorizontal) {
+            Row(verticalAlignment = Alignment.CenterVertically) { content() }
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) { content() }
         }
     }
 
@@ -232,7 +237,10 @@ fun Sidebar(
             accent       = accent,
             iconInactive = iconInactive,
             isHorizontal = isHorizontal,
-            onClick      = { onNavigate(NavDestination.APP_LIBRARY) }
+            onClick      = { 
+                if (currentDest == NavDestination.APP_LIBRARY) onNavigate(NavDestination.HOME) 
+                else onNavigate(NavDestination.APP_LIBRARY) 
+            }
         )
         NavButton(
             icon         = Icons.Default.Settings,
@@ -241,16 +249,10 @@ fun Sidebar(
             accent       = accent,
             iconInactive = iconInactive,
             isHorizontal = isHorizontal,
-            onClick      = { onNavigate(NavDestination.SETTINGS) }
-        )
-        NavButton(
-            icon         = Icons.Default.Home,
-            label        = "Home",
-            isActive     = currentDest == NavDestination.HOME,
-            accent       = accent,
-            iconInactive = iconInactive,
-            isHorizontal = isHorizontal,
-            onClick      = { onNavigate(NavDestination.HOME) }
+            onClick      = { 
+                if (currentDest == NavDestination.SETTINGS) onNavigate(NavDestination.HOME) 
+                else onNavigate(NavDestination.SETTINGS) 
+            }
         )
     }
 
@@ -262,48 +264,59 @@ fun Sidebar(
                 .background(sidebarBg)
         ) {
             Row(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .fillMaxHeight()
-                    .padding(start = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
+                modifier = Modifier.fillMaxSize(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                clockContent()
-                Spacer(Modifier.width(12.dp))
-                statusIcons()
-            }
-
-            // Shortcuts centred, inset past the edge-pinned nav buttons and
-            // scrollable — an unbounded row ran beneath the nav buttons and off
-            // both screen edges once enough slots were added
-            Row(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxHeight()
-                    .padding(horizontal = 160.dp)
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                shortcutsContent()
-            }
-
-            // Nav buttons pinned to one edge, Home always outermost
-            Row(
-                modifier = Modifier
-                    .align(if (settings.bottomBarShortcutsRight) Alignment.CenterEnd else Alignment.CenterStart)
-                    .fillMaxHeight(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                if (!settings.bottomBarShortcutsRight) {
+                // Controls pinned to the LEFT
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 2.dp)) {
+                    NavButton(
+                        icon         = Icons.Default.Settings,
+                        label        = "Settings",
+                        isActive     = currentDest == NavDestination.SETTINGS,
+                        accent       = accent,
+                        iconInactive = iconInactive,
+                        isHorizontal = true,
+                        onClick      = { 
+                            if (currentDest == NavDestination.SETTINGS) onNavigate(NavDestination.HOME) 
+                            else onNavigate(NavDestination.SETTINGS) 
+                        }
+                    )
+                    NavButton(
+                        icon         = Icons.Default.Apps,
+                        label        = "Apps",
+                        isActive     = currentDest == NavDestination.APP_LIBRARY,
+                        accent       = accent,
+                        iconInactive = iconInactive,
+                        isHorizontal = true,
+                        onClick      = { 
+                            if (currentDest == NavDestination.APP_LIBRARY) onNavigate(NavDestination.HOME) 
+                            else onNavigate(NavDestination.APP_LIBRARY) 
+                        }
+                    )
                     editButtons()
-                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true) { onNavigate(NavDestination.HOME) }
-                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true) { onNavigate(NavDestination.SETTINGS) }
-                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true) { onNavigate(NavDestination.APP_LIBRARY) }
-                } else {
-                    NavButton(Icons.Default.Apps,     "Apps",     currentDest == NavDestination.APP_LIBRARY, accent, iconInactive, true) { onNavigate(NavDestination.APP_LIBRARY) }
-                    NavButton(Icons.Default.Settings, "Settings", currentDest == NavDestination.SETTINGS,    accent, iconInactive, true) { onNavigate(NavDestination.SETTINGS) }
-                    NavButton(Icons.Default.Home,     "Home",     currentDest == NavDestination.HOME,        accent, iconInactive, true) { onNavigate(NavDestination.HOME) }
-                    editButtons()
+                }
+
+                // Shortcuts centered in the middle
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(horizontal = 16.dp)
+                        .horizontalScroll(rememberScrollState()),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    shortcutsContent()
+                }
+
+                // Clock and status icons pinned to the RIGHT
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(end = 12.dp)
+                ) {
+                    statusIcons()
+                    Spacer(Modifier.width(16.dp))
+                    clockContent()
                 }
             }
         }
@@ -628,7 +641,7 @@ private fun NavButton(
                 if (isHorizontal) Modifier.fillMaxHeight().width(NAV_SLOT_SIZE)
                 else              Modifier.fillMaxWidth().height(NAV_SLOT_SIZE)
             )
-            .padding(4.dp)
+            .padding(2.dp)
             .clip(MaterialTheme.shapes.medium)
             .background(if (isActive) activeBg else Color.Transparent)
             .clickable(onClick = onClick)

@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.openlauncher.app.util.FileLogger
 
 @Composable
 fun PipWidget(
@@ -36,13 +37,18 @@ fun PipWidget(
     LaunchedEffect(packageName, isReady, activityViewInstance) {
         if (packageName.isNotEmpty() && isReady && activityViewInstance != null && packageName != lastLaunchedPackage) {
             try {
+                FileLogger.log(context, "PIP: Attempting to launch package: $packageName")
                 val intent = context.packageManager.getLaunchIntentForPackage(packageName)
                 if (intent != null) {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     activityViewInstance?.startActivity(intent)
+                    FileLogger.log(context, "PIP: startActivity called for $packageName")
                     lastLaunchedPackage = packageName
+                } else {
+                    FileLogger.log(context, "PIP: Failed to get launch intent for $packageName")
                 }
             } catch (e: Exception) {
+                FileLogger.log(context, "PIP: Error launching app: ${e.message}")
                 e.printStackTrace()
             }
         }
@@ -76,33 +82,40 @@ fun PipWidget(
             AndroidView(
                 factory = { ctx ->
                     try {
+                        FileLogger.log(ctx, "PIP: Creating ActivityView...")
                         ActivityView(ctx).apply {
                             layoutParams = ViewGroup.LayoutParams(
                                 ViewGroup.LayoutParams.MATCH_PARENT,
                                 ViewGroup.LayoutParams.MATCH_PARENT
                             )
-                            setCallback(object : ActivityView.StateCallback {
+                            setCallback(object : ActivityView.StateCallback() {
                                 override fun onActivityViewReady(view: ActivityView) {
+                                    FileLogger.log(ctx, "PIP: ActivityView READY")
                                     activityViewInstance = view
                                     isReady = true
                                     supported = true
                                 }
 
                                 override fun onActivityViewDestroyed(view: ActivityView) {
+                                    FileLogger.log(ctx, "PIP: ActivityView DESTROYED")
                                     isReady = false
                                     activityViewInstance = null
                                 }
 
-                                override fun onTaskMovedToFront(taskId: Int) {}
+                                override fun onTaskMovedToFront(taskId: Int) {
+                                    FileLogger.log(ctx, "PIP: Task moved to front: $taskId")
+                                }
                             })
                         }
                     } catch (e: Throwable) {
+                        FileLogger.log(ctx, "PIP: ActivityView constructor failed: ${e.message}")
                         supported = false
                         View(ctx)
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
                 onRelease = { view ->
+                    FileLogger.log(context, "PIP: Releasing ActivityView")
                     if (view is ActivityView) {
                         view.release()
                     }
@@ -111,8 +124,9 @@ fun PipWidget(
             
             // If it's taking too long to be ready, it might be unsupported or failing silently
             LaunchedEffect(Unit) {
-                kotlinx.coroutines.delay(2000)
+                kotlinx.coroutines.delay(4000)
                 if (supported == null) {
+                    FileLogger.log(context, "PIP: Timeout reached waiting for onActivityViewReady")
                     supported = false
                 }
             }
