@@ -59,10 +59,7 @@ fun AppLibraryScreen(
 
     val filtered by remember(apps, query) {
         derivedStateOf {
-            apps.filter { app ->
-                packageManager.getLaunchIntentForPackage(app.packageName) != null
-            }
-                .filter { it.appName.contains(query, ignoreCase = true) }
+            apps.filter { it.appName.contains(query, ignoreCase = true) }
         }
     }
 

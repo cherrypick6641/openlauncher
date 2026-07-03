@@ -80,6 +80,11 @@ class MainActivity : ComponentActivity() {
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
 
+            // Performance Optimization: Create a lookup map for icons to avoid O(N) searches in sidebar recompositions
+            val appIconMap by remember(apps) {
+                derivedStateOf { apps.associate { it.packageName to it.icon } }
+            }
+
             var editMode by remember { mutableStateOf(false) }
             var widgetLibraryOpen by remember { mutableStateOf(false) }
 
@@ -175,9 +180,7 @@ class MainActivity : ComponentActivity() {
                                     currentDest   = nav,
                                     settings      = settings,
                                     isHorizontal  = isBottomBar,
-                                    installedIconFor = { pkg ->
-                                        apps.find { it.packageName == pkg }?.icon
-                                    },
+                                    installedIconFor = { pkg -> appIconMap[pkg] },
                                     onNavigate    = { dest ->
                                         vm.cancelShortcutPicker()
                                         vm.cancelCarPlayPicker()
@@ -208,68 +211,68 @@ class MainActivity : ComponentActivity() {
                         }
 
                         val mainPane: @Composable (Modifier) -> Unit = { paneModifier ->
-                            // ── Main content pane ─────────────────────────────
-                            AnimatedContent(
-                                targetState   = nav,
-                                transitionSpec = {
-                                    fadeIn() + slideInHorizontally { it / 10 } togetherWith
-                                    fadeOut() + slideOutHorizontally { -it / 10 }
-                                },
-                                modifier = paneModifier,
-                                label    = "pane_transition"
-                            ) { destination ->
-                                when (destination) {
-                                    NavDestination.HOME -> HomeScreen(
-                                        settings            = settings,
-                                        weather             = weather,
-                                        nowPlaying          = nowPlaying,
-                                        location            = location,
-                                        bearing             = bearing,
-                                        isDayMode           = isDayMode,
-                                        onPlayPause         = { vm.playPause(this@MainActivity) },
-                                        onNext              = vm::skipNext,
-                                        onPrev              = vm::skipPrev,
-                                        onLaunchCarPlay     = { vm.launchApp(settings.carPlayPackage) },
-                                        onLaunchAndroidAuto = { vm.launchApp(settings.androidAutoPackage) },
-                                        onAssignCarPlay     = { vm.startCarPlayPicker() },
-                                        onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
-                                        onClearCarPlay      = { vm.clearCarPlayApp() },
-                                        onClearAndroidAuto  = { vm.clearAndroidAutoApp() },
-                                        onAssignPip         = { vm.startPipPicker() },
-                                        onClearPip          = { vm.clearPipApp() },
-                                        onLaunchPip         = { vm.launchApp(settings.pipAppPackage) },
-                                        onTapNowPlaying     = {
-                                            val pkg = nowPlaying?.controller?.packageName
-                                            if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
-                                            vm.playLastOrOpenActive(this@MainActivity)
-                                        },
-                                        onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(id, sx, sy) },
-                                        onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(id, gx, gy) },
-                                        onAddWidget         = { id -> vm.addWidget(id) },
-                                        onRemoveWidget      = { id -> vm.removeWidget(id) },
-                                        onSetClockStyle     = { style -> vm.updateSettings { copy(clockStyle = style) } },
-                                        onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
-                                        onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
-                                        onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },
-                                        hardwareRadio         = hardwareRadio,
-                                        onLaunchHardwareRadio = { vm.launchHardwareRadioApp() },
-                                        onStopHardwareRadio   = { vm.stopHardwareRadioApp() },
-                                        onRadioSeekUp         = { vm.radioSeekUp() },
-                                        onRadioSeekDown       = { vm.radioSeekDown() },
-                                        onRadioCycleFm        = { vm.radioCycleFm() },
-                                        onRadioSwitchAm       = { vm.radioSwitchAm() },
-                                        onRadioTune           = { band, freq -> vm.radioTune(band, freq) },
-                                        onAssignRadio         = { vm.startRadioPicker() },
-                                        onToggleMapProvider = { vm.toggleMapProvider() },
-                                        onToggleTraffic     = { vm.toggleTraffic() },
-                                        onSetMapType        = { vm.setMapType(it) },
-                                        editMode            = editMode,
-                                        onToggleEditMode    = { editMode = !editMode },
-                                        widgetLibraryOpen   = widgetLibraryOpen,
-                                        onSetWidgetLibraryOpen = { widgetLibraryOpen = it }
-                                    )
+                            // ── Persistent Stack Navigation ─────────────────────────────
+                            // We keep HomeScreen at the bottom of the stack to avoid disposing PipWidget/ActivityView
+                            // when jumping between settings or app gallery.
+                            Box(modifier = paneModifier) {
+                                HomeScreen(
+                                    settings            = settings,
+                                    weather             = weather,
+                                    nowPlaying          = nowPlaying,
+                                    location            = location,
+                                    bearing             = bearing,
+                                    isDayMode           = isDayMode,
+                                    onPlayPause         = { vm.playPause(this@MainActivity) },
+                                    onNext              = vm::skipNext,
+                                    onPrev              = vm::skipPrev,
+                                    onLaunchCarPlay     = { vm.launchApp(settings.carPlayPackage) },
+                                    onLaunchAndroidAuto = { vm.launchApp(settings.androidAutoPackage) },
+                                    onAssignCarPlay     = { vm.startCarPlayPicker() },
+                                    onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
+                                    onClearCarPlay      = { vm.clearCarPlayApp() },
+                                    onClearAndroidAuto  = { vm.clearAndroidAutoApp() },
+                                    onAssignPip         = { vm.startPipPicker() },
+                                    onClearPip          = { vm.clearPipApp() },
+                                    onLaunchPip         = { vm.launchApp(settings.pipAppPackage) },
+                                    onTapNowPlaying     = {
+                                        val pkg = nowPlaying?.controller?.packageName
+                                        if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
+                                        vm.playLastOrOpenActive(this@MainActivity)
+                                    },
+                                    onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(id, sx, sy) },
+                                    onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(id, gx, gy) },
+                                    onAddWidget         = { id -> vm.addWidget(id) },
+                                    onRemoveWidget      = { id -> vm.removeWidget(id) },
+                                    onSetClockStyle     = { style -> vm.updateSettings { copy(clockStyle = style) } },
+                                    onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
+                                    onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
+                                    onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },
+                                    hardwareRadio         = hardwareRadio,
+                                    onLaunchHardwareRadio = { vm.launchHardwareRadioApp() },
+                                    onStopHardwareRadio   = { vm.stopHardwareRadioApp() },
+                                    onRadioSeekUp         = { vm.radioSeekUp() },
+                                    onRadioSeekDown       = { vm.radioSeekDown() },
+                                    onRadioCycleFm        = { vm.radioCycleFm() },
+                                    onRadioSwitchAm       = { vm.radioSwitchAm() },
+                                    onRadioTune           = { band, freq -> vm.radioTune(band, freq) },
+                                    onAssignRadio         = { vm.startRadioPicker() },
+                                    onToggleMapProvider = { vm.toggleMapProvider() },
+                                    onToggleTraffic     = { vm.toggleTraffic() },
+                                    onSetMapType        = { vm.setMapType(it) },
+                                    editMode            = editMode,
+                                    onToggleEditMode    = { editMode = !editMode },
+                                    widgetLibraryOpen   = widgetLibraryOpen,
+                                    onSetWidgetLibraryOpen = { widgetLibraryOpen = it },
+                                    modifier = Modifier.fillMaxSize()
+                                )
 
-                                    NavDestination.APP_LIBRARY -> AppLibraryScreen(
+                                // Overlay screens
+                                AnimatedVisibility(
+                                    visible = nav == NavDestination.APP_LIBRARY,
+                                    enter = fadeIn() + slideInHorizontally { it / 10 },
+                                    exit = fadeOut() + slideOutHorizontally { -it / 10 }
+                                ) {
+                                    AppLibraryScreen(
                                         apps                = apps,
                                         isLoading           = appsLoading,
                                         isPickerMode        = pickerSlot != null,
@@ -288,16 +291,24 @@ class MainActivity : ComponentActivity() {
                                         accent              = accent,
                                         onAppClick          = { app -> vm.launchApp(app.packageName) },
                                         onPickerSelect      = { slot, app -> vm.assignShortcut(slot, app) },
-                                        onCarPlaySelect     = { app -> vm.assignPickerApp(app) }
+                                        onCarPlaySelect     = { app -> vm.assignPickerApp(app) },
+                                        modifier = Modifier.fillMaxSize().background(bg)
                                     )
+                                }
 
-                                    NavDestination.SETTINGS -> SettingsScreen(
+                                AnimatedVisibility(
+                                    visible = nav == NavDestination.SETTINGS,
+                                    enter = fadeIn() + slideInHorizontally { it / 10 },
+                                    exit = fadeOut() + slideOutHorizontally { -it / 10 }
+                                ) {
+                                    SettingsScreen(
                                         settings = settings,
                                         accent   = accent,
                                         onUpdate = { block -> vm.updateSettings(block) },
                                         onReset  = { vm.resetSettings() },
                                         onAssignAutostart = { slot -> vm.startAutostartPicker(slot) },
-                                        onClearAutostart = { slot -> vm.clearAutostartApp(slot) }
+                                        onClearAutostart = { slot -> vm.clearAutostartApp(slot) },
+                                        modifier = Modifier.fillMaxSize().background(bg)
                                     )
                                 }
                             }

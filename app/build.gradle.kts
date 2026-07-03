@@ -13,8 +13,8 @@ android {
         applicationId  = "com.openlauncher.app"
         minSdk         = 21
         targetSdk      = 36
-        versionCode    = 10
-        versionName    = "1.3"
+        versionCode    = 11
+        versionName    = "1.4"
     }
 
     signingConfigs {
@@ -80,9 +80,6 @@ dependencies {
 
     // Image loading
     implementation("io.coil-kt:coil-compose:2.7.0")
-
-    // Permissions
-    implementation("com.google.accompanist:accompanist-permissions:0.37.3")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")

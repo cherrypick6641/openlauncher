@@ -1,8 +1,10 @@
 package com.openlauncher.app.viewmodel
 
 import android.app.Application
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.database.ContentObserver
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -379,29 +381,40 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val _appsLoading = MutableStateFlow(false)
     val appsLoading: StateFlow<Boolean> = _appsLoading
 
+    private val packageReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            loadInstalledApps()
+        }
+    }
+
     fun loadInstalledApps() {
         if (_appsLoading.value) return
         viewModelScope.launch(Dispatchers.IO) {
             _appsLoading.value = true
             val pm = getApplication<Application>().packageManager
 
-            // Use getInstalledApplications — same source Android Settings uses,
-            // catches apps with no launcher/ACTION_MAIN activity (e.g. CarPlay companions)
-            _apps.value = pm.getInstalledApplications(0)
-                .mapNotNull { appInfo ->
-                    try {
-                        val label = pm.getApplicationLabel(appInfo).toString()
-                        if (label.isBlank()) return@mapNotNull null
-                        AppInfo(
-                            packageName = appInfo.packageName,
-                            appName     = label,
-                            icon        = pm.getApplicationIcon(appInfo),
-                            isSystemApp = (appInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
-                        )
-                    } catch (_: Exception) { null }
-                }
-                .distinctBy { it.packageName }
-                .sortedBy { it.appName }
+            // Query specifically for apps with a Launcher interface (Graphical UI)
+            // This captures both User and System apps (like Chrome, Maps, YouTube)
+            val intent = Intent(Intent.ACTION_MAIN, null).addCategory(Intent.CATEGORY_LAUNCHER)
+            val resolveInfos = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                pm.queryIntentActivities(intent, android.content.pm.PackageManager.ResolveInfoFlags.of(0))
+            } else {
+                @Suppress("DEPRECATION")
+                pm.queryIntentActivities(intent, 0)
+            }
+
+            _apps.value = resolveInfos.mapNotNull { info ->
+                try {
+                    AppInfo(
+                        packageName = info.activityInfo.packageName,
+                        appName     = info.loadLabel(pm).toString(),
+                        icon        = info.loadIcon(pm),
+                        isSystemApp = (info.activityInfo.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+                    )
+                } catch (_: Exception) { null }
+            }
+            .distinctBy { it.packageName }
+            .sortedBy { it.appName }
             _appsLoading.value = false
         }
     }
@@ -852,6 +865,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     override fun onCleared() {
         super.onCleared()
+        getApplication<Application>().unregisterReceiver(packageReceiver)
         locationMgr.stop()
         radioObserver?.let { getApplication<Application>().contentResolver.unregisterContentObserver(it) }
         radioObserver = null
@@ -859,6 +873,14 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     init {
+        val filter = IntentFilter().apply {
+            addAction(Intent.ACTION_PACKAGE_ADDED)
+            addAction(Intent.ACTION_PACKAGE_REMOVED)
+            addAction(Intent.ACTION_PACKAGE_REPLACED)
+            addDataScheme("package")
+        }
+        getApplication<Application>().registerReceiver(packageReceiver, filter)
+
         loadInstalledApps()
         refreshConnectivity()
         startSignalListeners()

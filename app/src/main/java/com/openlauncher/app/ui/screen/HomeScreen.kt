@@ -194,7 +194,7 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val accent       = Color(settings.accentColor)
-    val gap          = 4.dp
+    val gap          = 6.dp
     val widgetShape  = MaterialTheme.shapes.large
     val hasWallpaper = settings.wallpaperUri.isNotEmpty()
     val widgetBg     = when {

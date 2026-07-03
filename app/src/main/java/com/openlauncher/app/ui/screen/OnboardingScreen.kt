@@ -149,7 +149,7 @@ fun OnboardingScreen(
                 }
 
                 Text(
-                    text = "v1.3",
+                    text = "v1.4",
                     color = Color(0xFF333333),
                     fontSize = 9.sp,
                     letterSpacing = 1.sp

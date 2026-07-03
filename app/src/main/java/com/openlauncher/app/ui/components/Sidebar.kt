@@ -42,8 +42,8 @@ import com.openlauncher.app.ui.theme.LocalDayMode
 import kotlin.math.roundToInt
 
 private val ICON_SIZE   = 36.dp
-private val SHORTCUT_ICON_SIZE = 48.dp
-private val SHORTCUT_SLOT_SIZE = 56.dp
+private val SHORTCUT_ICON_SIZE = 44.dp
+private val SHORTCUT_SLOT_SIZE = 52.dp
 private val NAV_SLOT_SIZE = 42.dp
 private val SIDEBAR_W   = 60.dp
 
@@ -73,6 +73,8 @@ fun Sidebar(
     val dividerColor = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.0f)
     val density      = LocalDensity.current
     val slotSizePx   = with(density) { SHORTCUT_SLOT_SIZE.toPx() }
+    val almostWhite  = Color(0xFFF0F0F0)
+    val statusIconColor = if (isDayMode) Color(0xFF444444) else almostWhite
 
     var actionSheetSlot by remember { mutableStateOf<Int?>(null) }
     var iconPickerSlot  by remember { mutableStateOf<Int?>(null) }
@@ -92,26 +94,6 @@ fun Sidebar(
             from < to && index in (from + 1)..to -> -slotSizePx
             from > to && index in to until from  ->  slotSizePx
             else -> 0f
-        }
-    }
-
-    val statusIconColor   = if (isDayMode) Color(0xFF444444) else Color(0xFF666666)
-
-    val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
-    val dateFormatter = remember { java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()) }
-    val dayFormatter  = remember { java.text.SimpleDateFormat("dd/MM", java.util.Locale.getDefault()) }
-
-    var timeText by remember { mutableStateOf(timeFormatter.format(java.util.Date())) }
-    var dateText by remember { mutableStateOf(dateFormatter.format(java.util.Date())) }
-    var dayText  by remember { mutableStateOf(dayFormatter.format(java.util.Date())) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            val now = java.util.Date()
-            timeText = timeFormatter.format(now)
-            dateText = dateFormatter.format(now)
-            dayText  = dayFormatter.format(now)
-            kotlinx.coroutines.delay(1000)
         }
     }
 
@@ -148,28 +130,7 @@ fun Sidebar(
     }
 
     val clockContent: @Composable () -> Unit = {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(vertical = 8.dp)
-        ) {
-            Text(
-                text = timeText,
-                color = if (isDayMode) Color.Black else Color.White,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-                fontSize = 18.sp
-            )
-            Text(
-                text = dateText.uppercase(),
-                color = if (isDayMode) Color(0xFF666666) else Color(0xFF999999),
-                fontSize = 14.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-            )
-            Text(
-                text = dayText,
-                color = if (isDayMode) Color(0xFF666666) else Color(0xFF999999),
-                fontSize = 14.sp
-            )
-        }
+        ClockContent(isDayMode = isDayMode)
     }
 
     val editButtons: @Composable () -> Unit = {
@@ -231,27 +192,28 @@ fun Sidebar(
 
     val navButtons: @Composable () -> Unit = {
         NavButton(
-            icon         = Icons.Default.Apps,
-            label        = "Apps",
-            isActive     = currentDest == NavDestination.APP_LIBRARY,
-            accent       = accent,
-            iconInactive = iconInactive,
-            isHorizontal = isHorizontal,
-            onClick      = { 
-                if (currentDest == NavDestination.APP_LIBRARY) onNavigate(NavDestination.HOME) 
-                else onNavigate(NavDestination.APP_LIBRARY) 
-            }
-        )
-        NavButton(
             icon         = Icons.Default.Settings,
             label        = "Settings",
             isActive     = currentDest == NavDestination.SETTINGS,
             accent       = accent,
-            iconInactive = iconInactive,
+            iconInactive = if (isDayMode) iconInactive else almostWhite,
             isHorizontal = isHorizontal,
             onClick      = { 
                 if (currentDest == NavDestination.SETTINGS) onNavigate(NavDestination.HOME) 
                 else onNavigate(NavDestination.SETTINGS) 
+            }
+        )
+        NavButton(
+            icon         = Icons.Default.Apps,
+            label        = "Apps",
+            isActive     = currentDest == NavDestination.APP_LIBRARY,
+            accent       = accent,
+            iconInactive = if (isDayMode) iconInactive else almostWhite,
+            customBg     = accent,
+            isHorizontal = isHorizontal,
+            onClick      = { 
+                if (currentDest == NavDestination.APP_LIBRARY) onNavigate(NavDestination.HOME) 
+                else onNavigate(NavDestination.APP_LIBRARY) 
             }
         )
     }
@@ -275,7 +237,7 @@ fun Sidebar(
                         label        = "Settings",
                         isActive     = currentDest == NavDestination.SETTINGS,
                         accent       = accent,
-                        iconInactive = iconInactive,
+                        iconInactive = if (isDayMode) iconInactive else almostWhite,
                         isHorizontal = true,
                         onClick      = { 
                             if (currentDest == NavDestination.SETTINGS) onNavigate(NavDestination.HOME) 
@@ -287,7 +249,8 @@ fun Sidebar(
                         label        = "Apps",
                         isActive     = currentDest == NavDestination.APP_LIBRARY,
                         accent       = accent,
-                        iconInactive = iconInactive,
+                        iconInactive = if (isDayMode) iconInactive else almostWhite,
+                        customBg     = accent,
                         isHorizontal = true,
                         onClick      = { 
                             if (currentDest == NavDestination.APP_LIBRARY) onNavigate(NavDestination.HOME) 
@@ -628,12 +591,18 @@ private fun NavButton(
     isActive: Boolean,
     accent: Color,
     iconInactive: Color,
+    customBg: Color? = null,
     isHorizontal: Boolean = false,
     onClick: () -> Unit
 ) {
     val isDayMode = LocalDayMode.current
     val activeIconColor = if (isDayMode) Color(0xFF111111) else Color.White
     val activeBg = if (isDayMode) Color(0xFF000000).copy(alpha = 0.08f) else Color.White.copy(alpha = 0.06f)
+    val finalBg = when {
+        isActive -> activeBg
+        customBg != null -> customBg
+        else -> Color.Transparent
+    }
     Box(
         contentAlignment = Alignment.Center,
         modifier = Modifier
@@ -643,7 +612,7 @@ private fun NavButton(
             )
             .padding(2.dp)
             .clip(MaterialTheme.shapes.medium)
-            .background(if (isActive) activeBg else Color.Transparent)
+            .background(finalBg)
             .clickable(onClick = onClick)
     ) {
         Icon(
@@ -651,6 +620,50 @@ private fun NavButton(
             contentDescription = label,
             tint               = if (isActive) activeIconColor else iconInactive,
             modifier           = Modifier.size(ICON_SIZE)
+        )
+    }
+}
+
+@Composable
+private fun ClockContent(isDayMode: Boolean) {
+    val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
+    val dateFormatter = remember { java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()) }
+    val dayFormatter  = remember { java.text.SimpleDateFormat("dd/MM", java.util.Locale.getDefault()) }
+
+    var timeText by remember { mutableStateOf(timeFormatter.format(java.util.Date())) }
+    var dateText by remember { mutableStateOf(dateFormatter.format(java.util.Date())) }
+    var dayText  by remember { mutableStateOf(dayFormatter.format(java.util.Date())) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            val now = java.util.Date()
+            timeText = timeFormatter.format(now)
+            dateText = dateFormatter.format(now)
+            dayText  = dayFormatter.format(now)
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier.padding(vertical = 8.dp)
+    ) {
+        Text(
+            text = timeText,
+            color = if (isDayMode) Color.Black else Color.White,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            fontSize = 18.sp
+        )
+        Text(
+            text = dateText.uppercase(),
+            color = if (isDayMode) Color(0xFF666666) else Color(0xFFF0F0F0),
+            fontSize = 14.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
+        )
+        Text(
+            text = dayText,
+            color = if (isDayMode) Color(0xFF666666) else Color(0xFFF0F0F0),
+            fontSize = 14.sp
         )
     }
 }
