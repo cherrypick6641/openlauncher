@@ -188,6 +188,7 @@ fun HomeScreen(
     onToggleTraffic: () -> Unit = {},
     onSetMapType: (com.openlauncher.app.data.MapType) -> Unit = {},
     editMode: Boolean = false,
+    isOverlayOpen: Boolean = false,
     onToggleEditMode: () -> Unit = {},
     widgetLibraryOpen: Boolean = false,
     onSetWidgetLibraryOpen: (Boolean) -> Unit = {},
@@ -341,7 +342,8 @@ fun HomeScreen(
                     onDragUpdate = { dragOffsetPx = it },
                     onDragEnd = { draggingId = null; dragOffsetPx = Offset.Zero },
                     cellStepXPx = cellStepXPx,
-                    cellStepYPx = cellStepYPx
+                    cellStepYPx = cellStepYPx,
+                    isOverlayOpen = isOverlayOpen
                 )
             }
         }
@@ -449,7 +451,8 @@ private fun WidgetItem(
     onDragUpdate: (Offset) -> Unit,
     onDragEnd: () -> Unit,
     cellStepXPx: Float,
-    cellStepYPx: Float
+    cellStepYPx: Float,
+    isOverlayOpen: Boolean = false
 ) {
     val xOff   = (cellW + gap) * w.gridX
     val yOff   = (cellH + gap) * w.gridY
@@ -526,7 +529,7 @@ private fun WidgetItem(
             "TRIP_TRACKER" -> TripTrackerWidget(location = location, isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC, accent = accent, isDayMode = isDayMode, modifier = Modifier.fillMaxSize())
             "SOUNDBOARD" -> SoundboardWidget(pads = settings.soundboardPads, accent = accent, isDayMode = isDayMode, isEditing = editMode, onUpdatePad = onUpdateSoundPad, modifier = Modifier.fillMaxSize())
             "MAP" -> MapWidget(location = location, mapProvider = settings.mapProvider, mapType = settings.mapType, showTraffic = settings.showTraffic, accent = accent, isDayMode = isDayMode, editMode = editMode, onToggleProvider = onToggleMapProvider, onToggleTraffic = onToggleTraffic, onLongClick = { onLongClick(w.id) }, modifier = Modifier.fillMaxSize())
-            "PIP" -> PipWidget(packageName = settings.pipAppPackage, modifier = Modifier.fillMaxSize())
+            "PIP" -> PipWidget(packageName = settings.pipAppPackage, isOverlayOpen = isOverlayOpen, modifier = Modifier.fillMaxSize())
         }
 
         val label = when (w.id) {

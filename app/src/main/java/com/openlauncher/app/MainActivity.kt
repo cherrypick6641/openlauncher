@@ -11,8 +11,10 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -263,6 +265,7 @@ class MainActivity : ComponentActivity() {
                                     onToggleEditMode    = { editMode = !editMode },
                                     widgetLibraryOpen   = widgetLibraryOpen,
                                     onSetWidgetLibraryOpen = { widgetLibraryOpen = it },
+                                    isOverlayOpen       = nav != NavDestination.HOME,
                                     modifier = Modifier.fillMaxSize()
                                 )
 
@@ -292,7 +295,7 @@ class MainActivity : ComponentActivity() {
                                         onAppClick          = { app -> vm.launchApp(app.packageName) },
                                         onPickerSelect      = { slot, app -> vm.assignShortcut(slot, app) },
                                         onCarPlaySelect     = { app -> vm.assignPickerApp(app) },
-                                        modifier = Modifier.fillMaxSize().background(bg)
+                                        modifier = Modifier.fillMaxSize().background(bg).clickable(onClick = {})
                                     )
                                 }
 
@@ -308,7 +311,7 @@ class MainActivity : ComponentActivity() {
                                         onReset  = { vm.resetSettings() },
                                         onAssignAutostart = { slot -> vm.startAutostartPicker(slot) },
                                         onClearAutostart = { slot -> vm.clearAutostartApp(slot) },
-                                        modifier = Modifier.fillMaxSize().background(bg)
+                                        modifier = Modifier.fillMaxSize().background(bg).clickable(onClick = {})
                                     )
                                 }
                             }

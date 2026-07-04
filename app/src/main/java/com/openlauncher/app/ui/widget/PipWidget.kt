@@ -25,6 +25,7 @@ import com.openlauncher.app.util.FileLogger
 @Composable
 fun PipWidget(
     packageName: String,
+    isOverlayOpen: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -111,6 +112,12 @@ fun PipWidget(
                         FileLogger.log(ctx, "PIP: ActivityView constructor failed: ${e.message}")
                         supported = false
                         View(ctx)
+                    }
+                },
+                update = { view ->
+                    if (view is ActivityView) {
+                        // When overlay is open, hide ActivityView from touch & draw
+                        view.visibility = if (isOverlayOpen) View.INVISIBLE else View.VISIBLE
                     }
                 },
                 modifier = Modifier.fillMaxSize(),
