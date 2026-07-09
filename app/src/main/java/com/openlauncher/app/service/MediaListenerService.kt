@@ -1,6 +1,9 @@
 package com.openlauncher.app.service
 
 import android.content.ComponentName
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.ServiceConnection
 import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
@@ -12,6 +15,18 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 class MediaListenerService : NotificationListenerService() {
+
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(object : ContextWrapper(base) {
+            override fun unbindService(conn: ServiceConnection) {
+                try {
+                    super.unbindService(conn)
+                } catch (e: IllegalArgumentException) {
+                    // System bug: notification listener could not be unbound
+                }
+            }
+        })
+    }
 
     private var activeController: MediaController? = null
 

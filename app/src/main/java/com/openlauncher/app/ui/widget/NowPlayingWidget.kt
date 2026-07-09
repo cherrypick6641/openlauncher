@@ -860,13 +860,13 @@ private fun StandardMinimalPlayer(
             }
 
             // Informacion del clima
-            WeatherWidgetAudio(
+            /*WeatherWidgetAudio(
                 accent = accent,
                 isDayMode = isDayMode,
                 modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(start = 14.dp, top = 8.dp)
-            )
+            )*/
 
             Column(
                 modifier = Modifier

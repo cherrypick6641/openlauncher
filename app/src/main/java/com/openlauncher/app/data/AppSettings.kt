@@ -55,12 +55,13 @@ const val GRID_COLS = 6
 const val GRID_ROWS = 4
 
 data class WidgetConfig(
-    val id: String,          // "CLOCK" | "WEATHER" | "TELEMETRY" | "NOW_PLAYING"
+    val id: String,          // Unique identifier
     val gridX: Int,          // column 0..(GRID_COLS-1)
     val gridY: Int,          // row    0..(GRID_ROWS-1)
     val spanX: Int = 1,
     val spanY: Int = 1,
-    val enabled: Boolean = true
+    val enabled: Boolean = true,
+    val appWidgetId: Int? = null // For Android system widgets
 )
 
 data class AppSettings(
@@ -137,6 +138,9 @@ fun AppSettings.activeWidgetIds(): Set<String> = buildSet {
     if (showSoundboard) add("SOUNDBOARD")
     if (showMap) add("MAP")
     if (showPip) add("PIP")
+    
+    // Add any Android widgets that are currently in the layout and enabled
+    widgetLayout.forEach { if (it.enabled && it.appWidgetId != null) add(it.id) }
 }
 
 /**

@@ -44,11 +44,72 @@ import com.openlauncher.app.data.MapProvider
 import com.google.gson.Gson
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
+import android.appwidget.AppWidgetProviderInfo
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
+    companion object {
+        private const val APPWIDGET_HOST_ID = 1024
+    }
+
     private val settingsRepo = SettingsRepository(application)
     private val locationMgr  = LocationCompassManager(application)
+    
+    // Android AppWidget Support
+    val appWidgetHost = AppWidgetHost(application, APPWIDGET_HOST_ID)
+    val appWidgetManager = AppWidgetManager.getInstance(application)
+
+    fun startListeningWidgets() { appWidgetHost.startListening() }
+    fun stopListeningWidgets()  { appWidgetHost.stopListening() }
+
+    fun addAndroidWidget(appWidgetId: Int) {
+        updateSettings {
+            val activeIds = activeWidgetIds()
+            var currentLayout = widgetLayout
+            
+            // Try to find a 2x2 area first, then fallback to 1x1 if needed
+            var targetSpanX = 2
+            var targetSpanY = 2
+            var cell = freeAreaIn(currentLayout, activeIds, targetSpanX, targetSpanY)
+
+            if (cell == null) {
+                // Try 1x1
+                targetSpanX = 1
+                targetSpanY = 1
+                cell = freeAreaIn(currentLayout, activeIds, targetSpanX, targetSpanY)
+            }
+
+            if (cell == null) {
+                // Try to shrink something to make room for at least 1x1
+                val candidate = currentLayout
+                    .filter { it.enabled && it.id in activeIds && it.spanX * it.spanY > 1 }
+                    .maxByOrNull { it.spanX * it.spanY }
+                if (candidate != null) {
+                    currentLayout = currentLayout.map { w ->
+                        if (w.id == candidate.id)
+                            if (w.spanY > 1) w.copy(spanY = w.spanY - 1) else w.copy(spanX = w.spanX - 1)
+                        else w
+                    }
+                    cell = freeAreaIn(currentLayout, activeIds, targetSpanX, targetSpanY)
+                }
+            }
+
+            val targetCell = cell ?: return@updateSettings this
+            val uniqueId = "ANDROID_WIDGET_$appWidgetId"
+            
+            val newWidget = com.openlauncher.app.data.WidgetConfig(
+                id = uniqueId,
+                gridX = targetCell.first,
+                gridY = targetCell.second,
+                spanX = targetSpanX,
+                spanY = targetSpanY,
+                appWidgetId = appWidgetId
+            )
+            copy(widgetLayout = currentLayout + newWidget)
+        }
+    }
 
     // ── Settings ──────────────────────────────────────────────────────────────
     private val _settingsLoaded = MutableStateFlow(false)
@@ -320,9 +381,23 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 else          -> this
             }
             
-            // Explicitly disable the widget in the layout list as well
-            val newLayout = withShowRemoved.widgetLayout.map { w ->
-                if (w.id == id) w.copy(enabled = false) else w
+            // For custom Android widgets, remove them entirely from the list
+            // For built-in widgets, just set enabled = false
+            val isCustom = id.startsWith("ANDROID_WIDGET_")
+            val newLayout = if (isCustom) {
+                withShowRemoved.widgetLayout.filter { w ->
+                    if (w.id == id) {
+                        w.appWidgetId?.let { appWidgetHost.deleteAppWidgetId(it) }
+                        false
+                    } else true
+                }
+            } else {
+                withShowRemoved.widgetLayout.map { w ->
+                    if (w.id == id) {
+                        w.appWidgetId?.let { appWidgetHost.deleteAppWidgetId(it) }
+                        w.copy(enabled = false)
+                    } else w
+                }
             }
             withShowRemoved.copy(widgetLayout = newLayout)
         }

@@ -1,6 +1,7 @@
 package com.openlauncher.app
 
 import android.Manifest
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import android.appwidget.AppWidgetManager
 import coil.compose.AsyncImage
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.SidebarPosition
@@ -36,6 +38,45 @@ import com.openlauncher.app.viewmodel.LauncherViewModel
 class MainActivity : ComponentActivity() {
 
     private val vm: LauncherViewModel by viewModels()
+
+    private val widgetPicker = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val appWidgetId = result.data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
+        if (result.resultCode == RESULT_OK) {
+            if (appWidgetId != -1) {
+                val info = vm.appWidgetManager.getAppWidgetInfo(appWidgetId)
+                if (info?.configure != null) {
+                    val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+                    intent.component = info.configure
+                    intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+                    widgetConfigLauncher.launch(intent)
+                } else {
+                    vm.addAndroidWidget(appWidgetId)
+                }
+            }
+        } else if (appWidgetId != -1) {
+            vm.appWidgetHost.deleteAppWidgetId(appWidgetId)
+        }
+    }
+
+    private val widgetConfigLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val appWidgetId = result.data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
+        if (result.resultCode == RESULT_OK) {
+            if (appWidgetId != -1) vm.addAndroidWidget(appWidgetId)
+        } else if (appWidgetId != -1) {
+            vm.appWidgetHost.deleteAppWidgetId(appWidgetId)
+        }
+    }
+
+    private fun startWidgetPicker() {
+        val appWidgetId = vm.appWidgetHost.allocateAppWidgetId()
+        val pickIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_PICK)
+        pickIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+        widgetPicker.launch(pickIntent)
+    }
 
     private val locationPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -236,6 +277,7 @@ class MainActivity : ComponentActivity() {
                                     onAssignPip         = { vm.startPipPicker() },
                                     onClearPip          = { vm.clearPipApp() },
                                     onLaunchPip         = { vm.launchApp(settings.pipAppPackage) },
+                                    onAddAndroidWidget  = { startWidgetPicker() },
                                     onTapNowPlaying     = {
                                         val pkg = nowPlaying?.controller?.packageName
                                         if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
@@ -261,6 +303,7 @@ class MainActivity : ComponentActivity() {
                                     onToggleMapProvider = { vm.toggleMapProvider() },
                                     onToggleTraffic     = { vm.toggleTraffic() },
                                     onSetMapType        = { vm.setMapType(it) },
+                                    appWidgetHost       = vm.appWidgetHost,
                                     editMode            = editMode,
                                     onToggleEditMode    = { editMode = !editMode },
                                     widgetLibraryOpen   = widgetLibraryOpen,
@@ -357,11 +400,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
+        vm.stopListeningWidgets()
         vm.stopLocationUpdates()
     }
 
     override fun onStart() {
         super.onStart()
+        vm.startListeningWidgets()
         vm.startLocationUpdates()
     }
 }

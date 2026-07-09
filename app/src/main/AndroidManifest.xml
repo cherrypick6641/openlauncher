@@ -35,6 +35,9 @@
     <!-- Query all packages required on API 30+ for getInstalledApplications -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
+    <!-- Required for hosting Android widgets -->
+    <uses-permission android:name="android.permission.BIND_APPWIDGET" />
+
     <!-- Required on API 30+ so PackageManager returns ALL launcher apps -->
     <queries>
         <intent>

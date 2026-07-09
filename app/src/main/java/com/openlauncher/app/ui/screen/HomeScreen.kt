@@ -31,6 +31,7 @@ import androidx.compose.material.icons.filled.Adjust
 import androidx.compose.material.icons.filled.Cast
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Dialpad
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Dns
@@ -116,23 +117,12 @@ private val ALL_WIDGET_TYPES = listOf(
     WidgetTypeInfo("TRIP_TRACKER", "TRIP TRACKER", Icons.Default.Map,          "Trip logs & stats"),
     WidgetTypeInfo("SOUNDBOARD",  "SOUNDBOARD",  Icons.Default.Piano,         "Custom sound pads"),
     WidgetTypeInfo("MAP", "MAP", Icons.Default.Map, "Live GPS map"),
-    WidgetTypeInfo("PIP", "PIP", Icons.Default.Cast, "Picture in Picture")
+    WidgetTypeInfo("PIP", "PIP", Icons.Default.Cast, "Picture in Picture"),
+    WidgetTypeInfo("ANDROID_WIDGET", "ANDROID", Icons.Default.Layers, "System App Widget")
 )
 
 private fun canAddWidget(settings: AppSettings): Boolean {
-    val visibleIds = buildSet {
-        if (settings.showClock) add("CLOCK")
-        if (settings.showWeather) add("WEATHER")
-        if (settings.showNowPlaying) add("NOW_PLAYING")
-        if (settings.showTelemetry) add("TELEMETRY")
-        if (settings.showAltimeter) add("ALTIMETER")
-        if (settings.showSpeedometer) add("SPEEDOMETER")
-        if (settings.showVitals) add("VITALS")
-        if (settings.showTripTracker) add("TRIP_TRACKER")
-        if (settings.showSoundboard) add("SOUNDBOARD")
-        if (settings.showMap) add("MAP")
-        if (settings.showPip) add("PIP")
-    }
+    val visibleIds = settings.activeWidgetIds()
     val activeWidgets = settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
     val occupied = buildSet<Pair<Int, Int>> {
         activeWidgets.forEach { w ->
@@ -166,6 +156,7 @@ fun HomeScreen(
     onAssignPip: () -> Unit,
     onClearPip: () -> Unit,
     onLaunchPip: () -> Unit,
+    onAddAndroidWidget: () -> Unit,
     onTapNowPlaying: () -> Unit,
     onUpdateWidget: (id: String, spanX: Int, spanY: Int) -> Unit,
     onMoveWidget: (id: String, gridX: Int, gridY: Int) -> Unit,
@@ -187,6 +178,7 @@ fun HomeScreen(
     onToggleMapProvider: () -> Unit,
     onToggleTraffic: () -> Unit = {},
     onSetMapType: (com.openlauncher.app.data.MapType) -> Unit = {},
+    appWidgetHost: android.appwidget.AppWidgetHost,
     editMode: Boolean = false,
     isOverlayOpen: Boolean = false,
     onToggleEditMode: () -> Unit = {},
@@ -225,21 +217,7 @@ fun HomeScreen(
             val cellStepXPx = remember(density, cellW, gap) { with(density) { (cellW + gap).toPx() } }
             val cellStepYPx = remember(density, cellH, gap) { with(density) { (cellH + gap).toPx() } }
 
-            val visibleIds = remember(settings.showClock, settings.showWeather, settings.showNowPlaying, settings.showTelemetry, settings.showAltimeter, settings.showSpeedometer, settings.showVitals, settings.showTripTracker, settings.showSoundboard, settings.showMap) {
-                buildSet {
-                    if (settings.showClock) add("CLOCK")
-                    if (settings.showWeather) add("WEATHER")
-                    if (settings.showNowPlaying) add("NOW_PLAYING")
-                    if (settings.showTelemetry) add("TELEMETRY")
-                    if (settings.showAltimeter) add("ALTIMETER")
-                    if (settings.showSpeedometer) add("SPEEDOMETER")
-                    if (settings.showVitals) add("VITALS")
-                    if (settings.showTripTracker) add("TRIP_TRACKER")
-                    if (settings.showSoundboard) add("SOUNDBOARD")
-                    if (settings.showMap) add("MAP")
-                    if (settings.showPip) add("PIP")
-                }
-            }
+            val visibleIds = remember(settings) { settings.activeWidgetIds() }
 
             val visible = remember(settings.widgetLayout, visibleIds) {
                 settings.widgetLayout.filter { it.enabled && it.id in visibleIds }
@@ -337,6 +315,7 @@ fun HomeScreen(
                     onToggleMapProvider = onToggleMapProvider,
                     onToggleTraffic = onToggleTraffic,
                     onSetMapType = onSetMapType,
+                    appWidgetHost = appWidgetHost,
                     onLongClick = { contextMenuId = it },
                     onDragStart = { draggingId = it },
                     onDragUpdate = { dragOffsetPx = it },
@@ -372,6 +351,7 @@ fun HomeScreen(
             onSetClockStyle     = { onSetClockStyle(it) },
             onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
             onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
+            onRemove            = { onRemoveWidget(id) },
             onDismiss           = { contextMenuId = null },
             onToggleMapProvider = onToggleMapProvider,
             onToggleTraffic     = onToggleTraffic,
@@ -400,7 +380,10 @@ fun HomeScreen(
             settings  = settings,
             accent    = accent,
             isDayMode = isDayMode,
-            onAdd     = { id -> onAddWidget(id) },
+            onAdd     = { id -> 
+                if (id == "ANDROID_WIDGET") onAddAndroidWidget()
+                else onAddWidget(id) 
+            },
             onRemove  = { id -> onRemoveWidget(id) },
             onDismiss = { onSetWidgetLibraryOpen(false) }
         )
@@ -446,6 +429,7 @@ private fun WidgetItem(
     onToggleMapProvider: () -> Unit,
     onToggleTraffic: () -> Unit,
     onSetMapType: (com.openlauncher.app.data.MapType) -> Unit,
+    appWidgetHost: android.appwidget.AppWidgetHost,
     onLongClick: (String) -> Unit,
     onDragStart: (String) -> Unit,
     onDragUpdate: (Offset) -> Unit,
@@ -530,27 +514,42 @@ private fun WidgetItem(
             "SOUNDBOARD" -> SoundboardWidget(pads = settings.soundboardPads, accent = accent, isDayMode = isDayMode, isEditing = editMode, onUpdatePad = onUpdateSoundPad, modifier = Modifier.fillMaxSize())
             "MAP" -> MapWidget(location = location, mapProvider = settings.mapProvider, mapType = settings.mapType, showTraffic = settings.showTraffic, accent = accent, isDayMode = isDayMode, editMode = editMode, onToggleProvider = onToggleMapProvider, onToggleTraffic = onToggleTraffic, onLongClick = { onLongClick(w.id) }, modifier = Modifier.fillMaxSize())
             "PIP" -> PipWidget(packageName = settings.pipAppPackage, isOverlayOpen = isOverlayOpen, modifier = Modifier.fillMaxSize())
+            else -> if (w.appWidgetId != null) {
+                AndroidWidgetView(appWidgetId = w.appWidgetId, host = appWidgetHost, modifier = Modifier.fillMaxSize())
+                if (editMode) {
+                    // Overlay to capture touches in edit mode, as AndroidView consumes them
+                    Box(modifier = Modifier.fillMaxSize().background(Color.Transparent))
+                }
+            }
         }
-
-        val label = when (w.id) {
-            "CLOCK"       -> clockTimeLabel(Calendar.getInstance())
-            else          -> w.id.replace('_', ' ')
-        }
-        val labelColor = when {
-            isGhost -> Color.Transparent
-            w.id == "NOW_PLAYING" && nowPlaying?.albumArt != null && nowPlaying.title.isNotEmpty() -> Color.Transparent
-            isDayMode -> Color(0xFF999999)
-            else      -> Color(0xFF3A3A3A)
-        }
-        Text(
-            text          = label,
-            style         = MaterialTheme.typography.labelSmall,
-            color         = labelColor,
-            letterSpacing = 2.sp,
-            fontSize      = 8.sp,
-            modifier      = Modifier.align(Alignment.TopStart).padding(start = 10.dp, top = 7.dp)
-        )
     }
+}
+
+@Composable
+private fun AndroidWidgetView(
+    appWidgetId: Int,
+    host: android.appwidget.AppWidgetHost,
+    modifier: Modifier = Modifier
+) {
+    androidx.compose.ui.viewinterop.AndroidView(
+        factory = { context ->
+            val appWidgetManager = android.appwidget.AppWidgetManager.getInstance(context)
+            val info = appWidgetManager.getAppWidgetInfo(appWidgetId)
+            if (info != null) {
+                host.createView(context, appWidgetId, info).apply {
+                    layoutParams = android.view.ViewGroup.LayoutParams(
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                        android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                }
+            } else {
+                android.view.View(context).apply {
+                    setBackgroundColor(android.graphics.Color.DKGRAY)
+                }
+            }
+        },
+        modifier = modifier
+    )
 }
 
 @Composable
@@ -576,6 +575,7 @@ private fun WidgetContextMenu(
     onSetClockStyle: (ClockStyle) -> Unit,
     onSetVitalsAsBars: (Boolean) -> Unit,
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit,
+    onRemove: () -> Unit,
     onDismiss: () -> Unit,
     onToggleMapProvider: () -> Unit,
     onToggleTraffic: () -> Unit = {},
@@ -637,6 +637,9 @@ private fun WidgetContextMenu(
                     ContextRow(if (settings.showTraffic) "HIDE TRAFFIC" else "SHOW TRAFFIC", Icons.Default.Traffic, if (settings.showTraffic) accent else inactiveMenuTint, { onToggleTraffic(); onDismiss() }, isDayMode)
                 }
             }
+            
+            HorizontalDivider(color = menuDivider)
+            ContextRow("REMOVE WIDGET", Icons.Default.Delete, Color(0xFF884444), { onRemove(); onDismiss() }, isDayMode)
         }
     }
 }
@@ -695,8 +698,24 @@ private fun WidgetLibraryDialog(settings: AppSettings, accent: Color, isDayMode:
             }
             LazyVerticalGrid(columns = GridCells.Fixed(4), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 items(ALL_WIDGET_TYPES) { info ->
-                    val isActive = info.id in activeIds
-                    WidgetLibraryCard(info = info, isActive = isActive, canAdd = canAdd, accent = accent, isDayMode = isDayMode, onToggle = { if (isActive) onRemove(info.id) else onAdd(info.id) })
+                    val isAndroidWidget = info.id == "ANDROID_WIDGET"
+                    val isActive = if (isAndroidWidget) {
+                        activeIds.any { it.startsWith("ANDROID_WIDGET_") }
+                    } else {
+                        info.id in activeIds
+                    }
+                    WidgetLibraryCard(
+                        info = info, 
+                        isActive = isActive, 
+                        canAdd = canAdd, 
+                        accent = accent, 
+                        isDayMode = isDayMode, 
+                        onToggle = { 
+                            if (isAndroidWidget) onAdd(info.id)
+                            else if (isActive) onRemove(info.id) 
+                            else onAdd(info.id) 
+                        }
+                    )
                 }
             }
             if (!canAdd) {
