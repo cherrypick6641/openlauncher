@@ -100,6 +100,16 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) hideSystemBars()
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        // Reset to home screen when the HOME button is pressed
+        vm.navigate(NavDestination.HOME)
+        vm.exitRearrangeMode()
+        vm.setWidgetLibraryOpen(false)
+        vm.cancelShortcutPicker()
+        vm.cancelCarPlayPicker()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         hideSystemBars()
@@ -118,36 +128,21 @@ class MainActivity : ComponentActivity() {
             val mobileLevel by vm.mobileLevel.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
             val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
+            val appIconMap  by vm.appIconMap.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
 
-            // Performance Optimization: Create a lookup map for icons to avoid O(N) searches in sidebar recompositions
-            val appIconMap by remember(apps) {
-                derivedStateOf { apps.associate { it.packageName to it.icon } }
-            }
+            val editMode by vm.rearrangeMode.collectAsStateWithLifecycle()
+            val widgetLibraryOpen by vm.widgetLibraryOpen.collectAsStateWithLifecycle()
 
-            var editMode by remember { mutableStateOf(false) }
-            var widgetLibraryOpen by remember { mutableStateOf(false) }
-
-            var autostartLaunched by rememberSaveable { mutableStateOf(false) }
-            LaunchedEffect(settingsLoaded) {
-                if (settingsLoaded && !autostartLaunched) {
-                    val appsToLaunch = settings.autostartPackages.filter { it.isNotEmpty() }
-                    if (appsToLaunch.isNotEmpty()) {
-                        // Use user-defined delay (default 2s, range 2-20s)
-                        delay(settings.autostartDelay * 1000L)
-                        
-                        appsToLaunch.forEach { pkg ->
-                            vm.launchApp(pkg)
-                            // Small gap between multiple app launches to avoid intent collisions
-                            delay(500)
-                        }
-                        autostartLaunched = true
-                    }
-                }
-            }
+            AppAutostartHandler(
+                settingsLoaded = settingsLoaded,
+                autostartPackages = settings.autostartPackages,
+                autostartDelay = settings.autostartDelay,
+                onLaunchApp = vm::launchApp
+            )
 
             val accent         = Color(settings.accentColor)
             val bg             = if (settings.useCustomBackgroundColor) {
@@ -185,209 +180,34 @@ class MainActivity : ComponentActivity() {
                     isDayMode  = isDayMode,
                     useCustomBg = settings.useCustomBackgroundColor
                 ) {
-                if (!settings.onboardingCompleted) {
-                    OnboardingScreen(
+                    MainContentShell(
+                        settings = settings,
+                        nav = nav,
+                        apps = apps,
+                        appsLoading = appsLoading,
+                        nowPlaying = nowPlaying,
+                        weather = weather,
+                        location = location,
+                        bearing = bearing,
+                        wifiLevel = wifiLevel,
+                        mobileLevel = mobileLevel,
+                        isDayMode = isDayMode,
+                        hardwareRadio = hardwareRadio,
+                        appIconMap = appIconMap,
+                        pickerSlot = pickerSlot,
+                        appPickerTarget = appPickerTarget,
+                        editMode = editMode,
+                        onSetEditMode = { vm.toggleRearrangeMode() },
+                        widgetLibraryOpen = widgetLibraryOpen,
+                        onSetWidgetLibraryOpen = { vm.setWidgetLibraryOpen(it) },
                         accent = accent,
-                        onComplete = {
-                            vm.updateSettings { copy(onboardingCompleted = true) }
-                            // Start location updates immediately upon completion
-                            vm.startLocationUpdates()
-                        }
+                        bg = bg,
+                        bgBrush = bgBrush,
+                        vm = vm,
+                        startWidgetPicker = ::startWidgetPicker,
+                        onPlayPause = { vm.playPause(this@MainActivity) }
                     )
-                } else {
-                    Box(modifier = Modifier.fillMaxSize().let { m ->
-                        if (bgBrush != null) m.background(bgBrush) else m.background(bg)
-                    }) {
-                        // Optional wallpaper layer
-                        if (settings.wallpaperUri.isNotEmpty()) {
-                            AsyncImage(
-                                model              = android.net.Uri.parse(settings.wallpaperUri),
-                                contentDescription = null,
-                                contentScale       = androidx.compose.ui.layout.ContentScale.Crop,
-                                modifier           = Modifier.fillMaxSize()
-                            )
-                            Box(modifier = Modifier.fillMaxSize()
-                                .background(Color.Black.copy(alpha = settings.wallpaperDim)))
-                        }
-
-                        val isBottomBar    = settings.sidebarPosition == SidebarPosition.BOTTOM
-                        val layoutDivColor = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF000000)
-
-                        val sidebarContent: @Composable () -> Unit = {
-                            val sidebarDensity = Density(
-                                density = baseDensity.density * (1.0f + (settings.uiScale - 1.0f) * 0.35f),
-                                fontScale = baseDensity.fontScale
-                            )
-                            CompositionLocalProvider(LocalDensity provides sidebarDensity) {
-                                Sidebar(
-                                    currentDest   = nav,
-                                    settings      = settings,
-                                    isHorizontal  = isBottomBar,
-                                    installedIconFor = { pkg -> appIconMap[pkg] },
-                                    onNavigate    = { dest ->
-                                        vm.cancelShortcutPicker()
-                                        vm.cancelCarPlayPicker()
-                                        vm.exitRearrangeMode()
-                                        vm.navigate(dest)
-                                    },
-                                    onShortcutClick = { slot ->
-                                        val shortcut = settings.shortcuts[slot]
-                                        if (shortcut.packageName.isNotEmpty()) {
-                                            if (settings.showPip) {
-                                                vm.updateSettings { copy(pipAppPackage = shortcut.packageName) }
-                                            } else {
-                                                vm.launchApp(shortcut.packageName)
-                                            }
-                                        }
-                                    },
-                                    onShortcutLongPress  = { slot -> vm.startShortcutPicker(slot) },
-                                    onShortcutRemove     = { slot -> vm.removeShortcut(slot) },
-                                    onShortcutSetIcon    = { slot, icon -> vm.setShortcutIcon(slot, icon) },
-                                    onReorder            = { from, to -> vm.reorderShortcut(from, to) },
-                                    wifiLevel            = wifiLevel,
-                                    mobileLevel          = mobileLevel,
-                                    editMode             = editMode,
-                                    onToggleEditMode     = { editMode = !editMode },
-                                    onOpenWidgetLibrary  = { widgetLibraryOpen = true }
-                                )
-                            }
-                        }
-
-                        val mainPane: @Composable (Modifier) -> Unit = { paneModifier ->
-                            // ── Persistent Stack Navigation ─────────────────────────────
-                            // We keep HomeScreen at the bottom of the stack to avoid disposing PipWidget/ActivityView
-                            // when jumping between settings or app gallery.
-                            Box(modifier = paneModifier) {
-                                HomeScreen(
-                                    settings            = settings,
-                                    weather             = weather,
-                                    nowPlaying          = nowPlaying,
-                                    location            = location,
-                                    bearing             = bearing,
-                                    isDayMode           = isDayMode,
-                                    onPlayPause         = { vm.playPause(this@MainActivity) },
-                                    onNext              = vm::skipNext,
-                                    onPrev              = vm::skipPrev,
-                                    onLaunchCarPlay     = { vm.launchApp(settings.carPlayPackage) },
-                                    onLaunchAndroidAuto = { vm.launchApp(settings.androidAutoPackage) },
-                                    onAssignCarPlay     = { vm.startCarPlayPicker() },
-                                    onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
-                                    onClearCarPlay      = { vm.clearCarPlayApp() },
-                                    onClearAndroidAuto  = { vm.clearAndroidAutoApp() },
-                                    onAssignPip         = { vm.startPipPicker() },
-                                    onClearPip          = { vm.clearPipApp() },
-                                    onLaunchPip         = { vm.launchApp(settings.pipAppPackage) },
-                                    onAddAndroidWidget  = { startWidgetPicker() },
-                                    onTapNowPlaying     = {
-                                        val pkg = nowPlaying?.controller?.packageName
-                                        if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
-                                        vm.playLastOrOpenActive(this@MainActivity)
-                                    },
-                                    onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(id, sx, sy) },
-                                    onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(id, gx, gy) },
-                                    onAddWidget         = { id -> vm.addWidget(id) },
-                                    onRemoveWidget      = { id -> vm.removeWidget(id) },
-                                    onSetClockStyle     = { style -> vm.updateSettings { copy(clockStyle = style) } },
-                                    onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
-                                    onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
-                                    onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },
-                                    hardwareRadio         = hardwareRadio,
-                                    onLaunchHardwareRadio = { vm.launchHardwareRadioApp() },
-                                    onStopHardwareRadio   = { vm.stopHardwareRadioApp() },
-                                    onRadioSeekUp         = { vm.radioSeekUp() },
-                                    onRadioSeekDown       = { vm.radioSeekDown() },
-                                    onRadioCycleFm        = { vm.radioCycleFm() },
-                                    onRadioSwitchAm       = { vm.radioSwitchAm() },
-                                    onRadioTune           = { band, freq -> vm.radioTune(band, freq) },
-                                    onAssignRadio         = { vm.startRadioPicker() },
-                                    onToggleMapProvider = { vm.toggleMapProvider() },
-                                    onToggleTraffic     = { vm.toggleTraffic() },
-                                    onSetMapType        = { vm.setMapType(it) },
-                                    appWidgetHost       = vm.appWidgetHost,
-                                    editMode            = editMode,
-                                    onToggleEditMode    = { editMode = !editMode },
-                                    widgetLibraryOpen   = widgetLibraryOpen,
-                                    onSetWidgetLibraryOpen = { widgetLibraryOpen = it },
-                                    isOverlayOpen       = nav != NavDestination.HOME,
-                                    modifier = Modifier.fillMaxSize()
-                                )
-
-                                // Overlay screens
-                                AnimatedVisibility(
-                                    visible = nav == NavDestination.APP_LIBRARY,
-                                    enter = fadeIn() + slideInHorizontally { it / 10 },
-                                    exit = fadeOut() + slideOutHorizontally { -it / 10 }
-                                ) {
-                                    AppLibraryScreen(
-                                        apps                = apps,
-                                        isLoading           = appsLoading,
-                                        isPickerMode        = pickerSlot != null,
-                                        pickerSlot          = pickerSlot,
-                                        isCarPlayPickerMode = appPickerTarget != null,
-                                        carPlayPickerLabel  = when (appPickerTarget) {
-                                            LauncherViewModel.AppPickerTarget.ANDROID_AUTO -> "CHOOSE ANDROID AUTO APP"
-                                            LauncherViewModel.AppPickerTarget.PIP          -> "CHOOSE PIP APP"
-                                            LauncherViewModel.AppPickerTarget.RADIO        -> "CHOOSE RADIO APP"
-                                            LauncherViewModel.AppPickerTarget.AUTOSTART_1 -> "CHOOSE AUTOSTART APP 1"
-                                            LauncherViewModel.AppPickerTarget.AUTOSTART_2 -> "CHOOSE AUTOSTART APP 2"
-                                            LauncherViewModel.AppPickerTarget.AUTOSTART_3 -> "CHOOSE AUTOSTART APP 3"
-                                            LauncherViewModel.AppPickerTarget.AUTOSTART_4 -> "CHOOSE AUTOSTART APP 4"
-                                            else -> "CHOOSE CARPLAY APP"
-                                        },
-                                        accent              = accent,
-                                        onAppClick          = { app -> vm.launchApp(app.packageName) },
-                                        onPickerSelect      = { slot, app -> vm.assignShortcut(slot, app) },
-                                        onCarPlaySelect     = { app -> vm.assignPickerApp(app) },
-                                        modifier = Modifier.fillMaxSize().background(bg).clickable(onClick = {})
-                                    )
-                                }
-
-                                AnimatedVisibility(
-                                    visible = nav == NavDestination.SETTINGS,
-                                    enter = fadeIn() + slideInHorizontally { it / 10 },
-                                    exit = fadeOut() + slideOutHorizontally { -it / 10 }
-                                ) {
-                                    SettingsScreen(
-                                        settings = settings,
-                                        accent   = accent,
-                                        onUpdate = { block -> vm.updateSettings(block) },
-                                        onReset  = { vm.resetSettings() },
-                                        onAssignAutostart = { slot -> vm.startAutostartPicker(slot) },
-                                        onClearAutostart = { slot -> vm.clearAutostartApp(slot) },
-                                        modifier = Modifier.fillMaxSize().background(bg).clickable(onClick = {})
-                                    )
-                                }
-                            }
-                        }
-
-                        if (isBottomBar) {
-                            Column(modifier = Modifier.fillMaxSize()) {
-                                mainPane(Modifier.weight(1f).fillMaxWidth())
-                                androidx.compose.material3.HorizontalDivider(color = layoutDivColor)
-                                sidebarContent()
-                            }
-                        } else {
-                            Row(modifier = Modifier.fillMaxSize()) {
-                                val vDivider: @Composable () -> Unit = {
-                                    androidx.compose.material3.VerticalDivider(
-                                        modifier = Modifier.fillMaxHeight(),
-                                        color    = layoutDivColor
-                                    )
-                                }
-                                if (settings.sidebarPosition == SidebarPosition.LEFT) {
-                                    sidebarContent()
-                                    vDivider()
-                                }
-                                mainPane(Modifier.weight(1f).fillMaxHeight())
-                                if (settings.sidebarPosition == SidebarPosition.RIGHT) {
-                                    vDivider()
-                                    sidebarContent()
-                                }
-                            }
-                        }
-                    }
                 }
-            }
             } // CompositionLocalProvider
         }
     }
@@ -408,5 +228,259 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         vm.startListeningWidgets()
         vm.startLocationUpdates()
+    }
+}
+
+@Composable
+private fun AppAutostartHandler(
+    settingsLoaded: Boolean,
+    autostartPackages: List<String>,
+    autostartDelay: Int,
+    onLaunchApp: (String) -> Unit
+) {
+    var autostartLaunched by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(settingsLoaded) {
+        if (settingsLoaded && !autostartLaunched) {
+            val appsToLaunch = autostartPackages.filter { it.isNotEmpty() }
+            if (appsToLaunch.isNotEmpty()) {
+                delay(autostartDelay * 1000L)
+                appsToLaunch.forEach { pkg ->
+                    onLaunchApp(pkg)
+                    delay(500)
+                }
+                autostartLaunched = true
+            }
+        }
+    }
+}
+
+@Composable
+private fun MainContentShell(
+    settings: com.openlauncher.app.data.AppSettings,
+    nav: com.openlauncher.app.model.NavDestination,
+    apps: List<com.openlauncher.app.model.AppInfo>,
+    appsLoading: Boolean,
+    nowPlaying: com.openlauncher.app.model.NowPlayingState?,
+    weather: com.openlauncher.app.model.WeatherState?,
+    location: com.openlauncher.app.util.LocationData?,
+    bearing: Float,
+    wifiLevel: Int,
+    mobileLevel: Int,
+    isDayMode: Boolean,
+    hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState?,
+    appIconMap: Map<String, android.graphics.drawable.Drawable>,
+    pickerSlot: Int?,
+    appPickerTarget: com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget?,
+    editMode: Boolean,
+    onSetEditMode: (Boolean) -> Unit,
+    widgetLibraryOpen: Boolean,
+    onSetWidgetLibraryOpen: (Boolean) -> Unit,
+    accent: Color,
+    bg: Color,
+    bgBrush: androidx.compose.ui.graphics.Brush?,
+    vm: com.openlauncher.app.viewmodel.LauncherViewModel,
+    startWidgetPicker: () -> Unit,
+    onPlayPause: () -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    
+    if (!settings.onboardingCompleted) {
+        OnboardingScreen(
+            accent = accent,
+            onComplete = {
+                vm.updateSettings { copy(onboardingCompleted = true) }
+                vm.startLocationUpdates()
+            }
+        )
+    } else {
+        Box(modifier = Modifier.fillMaxSize().let { m ->
+            if (bgBrush != null) m.background(bgBrush) else m.background(bg)
+        }) {
+            // Optional wallpaper layer
+            if (settings.wallpaperUri.isNotEmpty()) {
+                coil.compose.AsyncImage(
+                    model              = android.net.Uri.parse(settings.wallpaperUri),
+                    contentDescription = null,
+                    contentScale       = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier           = Modifier.fillMaxSize()
+                )
+                Box(modifier = Modifier.fillMaxSize()
+                    .background(Color.Black.copy(alpha = settings.wallpaperDim)))
+            }
+
+            val isBottomBar    = settings.sidebarPosition == com.openlauncher.app.data.SidebarPosition.BOTTOM
+            val layoutDivColor = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF000000)
+
+            val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+            val sidebarContent: @Composable () -> Unit = {
+                val sidebarDensity = Density(
+                    density = baseDensity.density * (1.0f + (settings.uiScale - 1.0f) * 0.35f),
+                    fontScale = baseDensity.fontScale
+                )
+                CompositionLocalProvider(LocalDensity provides sidebarDensity) {
+                    Sidebar(
+                        currentDest   = nav,
+                        settings      = settings,
+                        isHorizontal  = isBottomBar,
+                        installedIconFor = { pkg -> appIconMap[pkg] },
+                        onNavigate    = { dest ->
+                            vm.cancelShortcutPicker()
+                            vm.cancelCarPlayPicker()
+                            vm.exitRearrangeMode()
+                            vm.navigate(dest)
+                        },
+                        onShortcutClick = { slot ->
+                            val shortcut = settings.shortcuts[slot]
+                            if (shortcut.packageName.isNotEmpty()) {
+                                if (settings.showPip) {
+                                    vm.updateSettings { copy(pipAppPackage = shortcut.packageName) }
+                                } else {
+                                    vm.launchApp(shortcut.packageName)
+                                }
+                            }
+                        },
+                        onShortcutLongPress  = { slot -> vm.startShortcutPicker(slot) },
+                        onShortcutRemove     = { slot -> vm.removeShortcut(slot) },
+                        onShortcutSetIcon    = { slot, icon -> vm.setShortcutIcon(slot, icon) },
+                        onReorder            = { from, to -> vm.reorderShortcut(from, to) },
+                        wifiLevel            = wifiLevel,
+                        mobileLevel          = mobileLevel,
+                        editMode             = editMode,
+                        onToggleEditMode     = { onSetEditMode(!editMode) },
+                        onOpenWidgetLibrary  = { onSetWidgetLibraryOpen(true) }
+                    )
+                }
+            }
+
+            val mainPane: @Composable (Modifier) -> Unit = { paneModifier ->
+                Box(modifier = paneModifier) {
+                    HomeScreen(
+                        settings            = settings,
+                        weather             = weather,
+                        nowPlaying          = nowPlaying,
+                        location            = location,
+                        bearing             = bearing,
+                        isDayMode           = isDayMode,
+                        onPlayPause         = onPlayPause,
+                        onNext              = vm::skipNext,
+                        onPrev              = vm::skipPrev,
+                        onLaunchCarPlay     = { vm.launchApp(settings.carPlayPackage) },
+                        onLaunchAndroidAuto = { vm.launchApp(settings.androidAutoPackage) },
+                        onAssignCarPlay     = { vm.startCarPlayPicker() },
+                        onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
+                        onClearCarPlay      = { vm.clearCarPlayApp() },
+                        onClearAndroidAuto  = { vm.clearAndroidAutoApp() },
+                        onAssignPip         = { vm.startPipPicker() },
+                        onClearPip          = { vm.clearPipApp() },
+                        onLaunchPip         = { vm.launchApp(settings.pipAppPackage) },
+                        onAddAndroidWidget  = { startWidgetPicker() },
+                        onTapNowPlaying     = {
+                            val pkg = nowPlaying?.controller?.packageName
+                            if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
+                            vm.playLastOrOpenActive(context)
+                        },
+                        onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(id, sx, sy) },
+                        onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(id, gx, gy) },
+                        onAddWidget         = { id -> vm.addWidget(id) },
+                        onRemoveWidget      = { id -> vm.removeWidget(id) },
+                        onSetClockStyle     = { style -> vm.updateSettings { copy(clockStyle = style) } },
+                        onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
+                        onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
+                        onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },
+                        hardwareRadio         = hardwareRadio,
+                        onLaunchHardwareRadio = { vm.launchHardwareRadioApp() },
+                        onStopHardwareRadio   = { vm.stopHardwareRadioApp() },
+                        onRadioSeekUp         = { vm.radioSeekUp() },
+                        onRadioSeekDown       = { vm.radioSeekDown() },
+                        onRadioCycleFm        = { vm.radioCycleFm() },
+                        onRadioSwitchAm       = { vm.radioSwitchAm() },
+                        onRadioTune           = { band, freq -> vm.radioTune(band, freq) },
+                        onAssignRadio         = { vm.startRadioPicker() },
+                        onToggleMapProvider = { vm.toggleMapProvider() },
+                        onToggleTraffic     = { vm.toggleTraffic() },
+                        onSetMapType        = { vm.setMapType(it) },
+                        appWidgetHost       = vm.appWidgetHost,
+                        editMode            = editMode,
+                        onToggleEditMode    = { onSetEditMode(!editMode) },
+                        widgetLibraryOpen   = widgetLibraryOpen,
+                        onSetWidgetLibraryOpen = { onSetWidgetLibraryOpen(it) },
+                        isOverlayOpen       = nav != com.openlauncher.app.model.NavDestination.HOME,
+                        modifier = Modifier.fillMaxSize()
+                    )
+
+                    // Overlay screens
+                    AnimatedVisibility(
+                        visible = nav == com.openlauncher.app.model.NavDestination.APP_LIBRARY,
+                        enter = fadeIn() + slideInHorizontally { it / 10 },
+                        exit = fadeOut() + slideOutHorizontally { -it / 10 }
+                    ) {
+                        AppLibraryScreen(
+                            apps                = apps,
+                            isLoading           = appsLoading,
+                            isPickerMode        = pickerSlot != null,
+                            pickerSlot          = pickerSlot,
+                            isCarPlayPickerMode = appPickerTarget != null,
+                            carPlayPickerLabel  = when (appPickerTarget) {
+                                LauncherViewModel.AppPickerTarget.ANDROID_AUTO -> "CHOOSE ANDROID AUTO APP"
+                                LauncherViewModel.AppPickerTarget.PIP          -> "CHOOSE PIP APP"
+                                LauncherViewModel.AppPickerTarget.RADIO        -> "CHOOSE RADIO APP"
+                                LauncherViewModel.AppPickerTarget.AUTOSTART_1 -> "CHOOSE AUTOSTART APP 1"
+                                LauncherViewModel.AppPickerTarget.AUTOSTART_2 -> "CHOOSE AUTOSTART APP 2"
+                                LauncherViewModel.AppPickerTarget.AUTOSTART_3 -> "CHOOSE AUTOSTART APP 3"
+                                LauncherViewModel.AppPickerTarget.AUTOSTART_4 -> "CHOOSE AUTOSTART APP 4"
+                                else -> "CHOOSE CARPLAY APP"
+                            },
+                            accent              = accent,
+                            onAppClick          = { app -> vm.launchApp(app.packageName) },
+                            onPickerSelect      = { slot, app -> vm.assignShortcut(slot, app) },
+                            onCarPlaySelect     = { app -> vm.assignPickerApp(app) },
+                            modifier = Modifier.fillMaxSize().background(bg).clickable(onClick = {})
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = nav == com.openlauncher.app.model.NavDestination.SETTINGS,
+                        enter = fadeIn() + slideInHorizontally { it / 10 },
+                        exit = fadeOut() + slideOutHorizontally { -it / 10 }
+                    ) {
+                        SettingsScreen(
+                            settings = settings,
+                            accent   = accent,
+                            onUpdate = { block -> vm.updateSettings(block) },
+                            onReset  = { vm.resetSettings() },
+                            onAssignAutostart = { slot -> vm.startAutostartPicker(slot) },
+                            onClearAutostart = { slot -> vm.clearAutostartApp(slot) },
+                            modifier = Modifier.fillMaxSize().background(bg).clickable(onClick = {})
+                        )
+                    }
+                }
+            }
+
+            if (isBottomBar) {
+                Column(modifier = Modifier.fillMaxSize()) {
+                    mainPane(Modifier.weight(1f).fillMaxWidth())
+                    androidx.compose.material3.HorizontalDivider(color = layoutDivColor)
+                    sidebarContent()
+                }
+            } else {
+                Row(modifier = Modifier.fillMaxSize()) {
+                    val vDivider: @Composable () -> Unit = {
+                        androidx.compose.material3.VerticalDivider(
+                            modifier = Modifier.fillMaxHeight(),
+                            color    = layoutDivColor
+                        )
+                    }
+                    if (settings.sidebarPosition == com.openlauncher.app.data.SidebarPosition.LEFT) {
+                        sidebarContent()
+                        vDivider()
+                    }
+                    mainPane(Modifier.weight(1f).fillMaxHeight())
+                    if (settings.sidebarPosition == com.openlauncher.app.data.SidebarPosition.RIGHT) {
+                        vDivider()
+                        sidebarContent()
+                    }
+                }
+            }
+        }
     }
 }

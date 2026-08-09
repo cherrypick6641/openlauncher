@@ -28,7 +28,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -43,10 +42,7 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.StrokeCap
 import kotlin.math.sin
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.openlauncher.app.viewmodel.LauncherViewModel
-import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 @Composable
 fun NowPlayingWidget(
@@ -245,121 +241,6 @@ private fun WaveProgressIndicator(
         )
     }
 }
-
-@Composable
-fun WeatherWidgetAudio(
-    accent: Color,
-    isDayMode: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    val launcherViewModel: LauncherViewModel = viewModel()
-
-    val weather by launcherViewModel.weather.collectAsState()
-    val settings by launcherViewModel.settings.collectAsState()
-
-    val isMetric = settings.unitSystem.name == "METRIC"
-
-    val contentColor = Color.White
-    val subColor     = Color(0xFF888888)
-
-    // Obtenemos la fecha de hoy del sistema
-    val todayString = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
-
-    // Buscamos usando 'weather' (que es la variable real en este archivo)
-    val todayWeather = weather?.forecastDays?.find { day -> day.date == todayString }
-
-    // 3. Si se encuentra, pintamos el diseño
-    todayWeather?.let { today ->
-        // Si 'currentTemperature' no es nula (hay Wi-Fi), la formateamos directamente.
-        // Si es nula (Offline), llamamos a 'temperatureDisplay()' que calcula el promedio.
-        val tempAImprimir = if (weather?.currentTemperature != null) {
-            if (isMetric) "${Math.round(weather!!.currentTemperature!!)}°C"
-                else "${Math.round(weather!!.currentTemperature!! * 9.0 / 5.0 + 32.0)}°F"
-        } else {
-            todayWeather.temperatureDisplay(isMetric) // Promedio offline
-          }
-        Row(
-            modifier = modifier
-            .clip(RoundedCornerShape(60.dp))
-            .background(Color.Black.copy(alpha = 0.35f))
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Text(
-                text = todayWeather.conditionIcon,
-                 fontSize = 18.sp
-            )
-
-            Text(
-                text = tempAImprimir,
-                 color = contentColor,
-                 fontSize = 18.sp,
-                 fontWeight = FontWeight.Light
-            )
-
-            Text(
-                text = today.conditionLabel.uppercase(),
-                 color = subColor,
-                 fontSize = 9.sp,
-                 maxLines = 1
-            )
-        }
-    }
-}
-
-/*@Composable
-fun WeatherWidgetAudio(
-    accent: Color,
-    isDayMode: Boolean = false,
-    modifier: Modifier = Modifier
-) {
-    val launcherViewModel: LauncherViewModel = viewModel()
-
-    val weather by launcherViewModel.weather.collectAsState()
-    val settings by launcherViewModel.settings.collectAsState()
-
-    val isMetric = settings.unitSystem.name == "METRIC"
-
-    val contentColor =
-    if (isDayMode) Color(0xFF111111)
-        else MaterialTheme.colorScheme.onBackground
-
-            val subColor =
-            if (isDayMode) Color(0xFF888888)
-                else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.5f)
-
-                    weather?.let { state ->
-                        Row(
-                            modifier = modifier
-                            .clip(RoundedCornerShape(60.dp))
-                            .background(Color.Black.copy(alpha = 0.35f))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Text(
-                                text = state.conditionIcon,
-                                 fontSize = 18.sp
-                            )
-
-                            Text(
-                                text = state.temperatureDisplay(isMetric),
-                                 color = contentColor,
-                                 fontSize = 18.sp,
-                                 fontWeight = FontWeight.Light
-                            )
-
-                            Text(
-                                text = state.conditionLabel.uppercase(),
-                                 color = subColor,
-                                 fontSize = 9.sp,
-                                 maxLines = 1
-                            )
-                        }
-                    }
-} */
-
 
 /**
  * Radio deck backed by a REAL tuner only — either the vendor MCU (full control,
@@ -804,15 +685,17 @@ private fun StandardMinimalPlayer(
         } else {
             // Non-null playing track state
             val nonNullState = state!!
-            val artworkModel by remember(
+            
+            // Fix: Include albumArt in keys so the model updates when the bitmap arrives later
+            val artworkModel = remember(
                 nonNullState.artUri,
+                nonNullState.albumArt,
                 nonNullState.title,
                 nonNullState.artist
             ) {
-                mutableStateOf(
-                    nonNullState.artUri ?: nonNullState.albumArt
-                )
+                nonNullState.artUri ?: nonNullState.albumArt
             }
+            
             var positionMs by remember { mutableLongStateOf(nonNullState.controller?.playbackState?.position ?: 0L) }
             val durationMs = nonNullState.controller?.metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L
 
@@ -824,7 +707,7 @@ private fun StandardMinimalPlayer(
             }
 
             // Draw Album Art as background with smooth blur overlay if present
-            val hasAlbumArt = nonNullState.albumArt != null
+            val hasAlbumArt = nonNullState.albumArt != null || nonNullState.artUri != null
             val useDarkTheme = hasAlbumArt || !isDayMode
 
             val currentTextColor = if (hasAlbumArt) Color.White else if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
@@ -836,37 +719,32 @@ private fun StandardMinimalPlayer(
             val currentPlayIconColor = if (useDarkTheme) Color.White else Color.Black
 
             if (hasAlbumArt) {
-                // Prefer the full-resolution art URI when the source app provides
-                // one — the metadata bitmap is often a downscaled notification
-                // thumbnail that looks soft stretched across the widget. Falls back
-                // to the bitmap if the URI fails to load, and renders with high
-                // filter quality so upscaling stays smooth either way.
+                // Reworked art loading: Use ImageRequest for better caching/crossfade
+                val context = LocalContext.current
+                val imageRequest = remember(artworkModel) {
+                    coil.request.ImageRequest.Builder(context)
+                        .data(artworkModel)
+                        .crossfade(true)
+                        .diskCacheKey("${nonNullState.title}-${nonNullState.artist}")
+                        .build()
+                }
+
                 coil.compose.AsyncImage(
-                    model = artworkModel,
+                    model = imageRequest,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
                     filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
-                    error = nonNullState.albumArt?.let {
-                        androidx.compose.ui.graphics.painter.BitmapPainter(it.asImageBitmap())
-                    },
+                    // Show a dim placeholder while the art loads
+                    placeholder = androidx.compose.ui.graphics.painter.ColorPainter(Color.Black.copy(alpha = 0.5f)),
                     modifier = Modifier.fillMaxSize()
                 )
-                // 25% dimming layer overlay
+                // 35% dimming layer overlay for better readability on art
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.25f))
+                        .background(Color.Black.copy(alpha = 0.35f))
                 )
             }
-
-            // Informacion del clima
-            /*WeatherWidgetAudio(
-                accent = accent,
-                isDayMode = isDayMode,
-                modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(start = 14.dp, top = 8.dp)
-            )*/
 
             Column(
                 modifier = Modifier
@@ -999,4 +877,3 @@ private fun formatMs(ms: Long): String {
     val s = ms / 1000
     return "%d:%02d".format(s / 60, s % 60)
 }
-

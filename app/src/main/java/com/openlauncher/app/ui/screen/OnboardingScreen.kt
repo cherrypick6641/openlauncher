@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import com.openlauncher.app.BuildConfig
 
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
@@ -149,7 +150,7 @@ fun OnboardingScreen(
                 }
 
                 Text(
-                    text = "v1.5.0",
+                    text = "v${BuildConfig.VERSION_NAME}",
                     color = Color(0xFF333333),
                     fontSize = 9.sp,
                     letterSpacing = 1.sp

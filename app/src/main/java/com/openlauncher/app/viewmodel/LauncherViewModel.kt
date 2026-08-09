@@ -188,7 +188,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     enum class AppPickerTarget { CARPLAY, ANDROID_AUTO, PIP, RADIO, AUTOSTART_1, AUTOSTART_2, AUTOSTART_3, AUTOSTART_4 }
 
     private val _appPickerTarget = MutableStateFlow<AppPickerTarget?>(null)
-    val carPlayPickerActive: StateFlow<Boolean> = MutableStateFlow(false) // kept for compat
     val appPickerTarget: StateFlow<AppPickerTarget?> = _appPickerTarget
 
     fun startCarPlayPicker() {
@@ -449,9 +448,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     fun toggleRearrangeMode() { _rearrangeMode.value = !_rearrangeMode.value }
     fun exitRearrangeMode()   { _rearrangeMode.value = false }
 
+    private val _widgetLibraryOpen = MutableStateFlow(false)
+    val widgetLibraryOpen: StateFlow<Boolean> = _widgetLibraryOpen
+
+    fun setWidgetLibraryOpen(open: Boolean) { _widgetLibraryOpen.value = open }
+
     // ── Installed apps ────────────────────────────────────────────────────────
     private val _apps = MutableStateFlow<List<AppInfo>>(emptyList())
     val apps: StateFlow<List<AppInfo>> = _apps
+
+    private val _appIconMap = MutableStateFlow<Map<String, android.graphics.drawable.Drawable>>(emptyMap())
+    val appIconMap: StateFlow<Map<String, android.graphics.drawable.Drawable>> = _appIconMap
 
     private val _appsLoading = MutableStateFlow(false)
     val appsLoading: StateFlow<Boolean> = _appsLoading
@@ -490,6 +497,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             }
             .distinctBy { it.packageName }
             .sortedBy { it.appName }
+            
+            _appIconMap.value = _apps.value.associate { it.packageName to it.icon }
             _appsLoading.value = false
         }
     }
@@ -734,7 +743,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     }
 
     private val _mcuRadio = MutableStateFlow<HardwareRadioState?>(null)
-    private val _fytRadio = MutableStateFlow<HardwareRadioState?>(null)
 
     private fun packageInstalled(pkg: String) = runCatching {
         getApplication<Application>().packageManager.getPackageInfo(pkg, 0)
@@ -748,12 +756,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                 getApplication<Application>().contentResolver, "SYS_MEDIA_INFO_JSON"
             ) != null
         }.getOrDefault(false)
-    }
-
-    private val hasFytMcu: Boolean by lazy {
-        packageInstalled("com.syu.radio") ||
-        packageInstalled("com.syu.ms") ||
-        packageInstalled("com.syu.carradio")
     }
 
     private fun parseRadioJson(): HardwareRadioState? {
@@ -772,30 +774,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun parseFytRadio(): HardwareRadioState? {
-        return try {
-            val cr = getApplication<Application>().contentResolver
-            val freqRaw = AndroidSettings.System.getInt(cr, "syu_radio_freq", -1).takeIf { it != -1 }
-                ?: AndroidSettings.System.getInt(cr, "fyt_radio_freq", 0)
-            if (freqRaw == 0) return null
-
-            val bandIdx = AndroidSettings.System.getInt(cr, "syu_radio_band", -1).takeIf { it != -1 }
-                ?: AndroidSettings.System.getInt(cr, "fyt_radio_band", 0)
-            
-            // 0=FM1, 1=FM2, 2=FM3, 3=AM1, 4=AM2
-            val isAm = bandIdx >= 3
-            val band = when (bandIdx) {
-                0 -> "FM1"; 1 -> "FM2"; 2 -> "FM3"; 3 -> "AM1"; 4 -> "AM2"; else -> if (isAm) "AM" else "FM"
-            }
-            val freqStr = if (isAm) freqRaw.toString() else String.format(java.util.Locale.US, "%.2f", freqRaw / 100f)
-            HardwareRadioState(band = band, freq = freqStr, canTune = true)
-        } catch (e: Exception) {
-            null
-        }
-    }
-
     private var radioObserver: ContentObserver? = null
-    private var fytRadioObserver: ContentObserver? = null
 
     private fun startHardwareRadioObserver() {
         if (radioObserver != null) return
@@ -810,22 +789,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             false, observer
         )
         radioObserver = observer
-    }
-
-    private fun startFytRadioObserver() {
-        if (fytRadioObserver != null) return
-        _fytRadio.value = parseFytRadio()
-        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) {
-                _fytRadio.value = parseFytRadio()
-            }
-        }
-        val cr = getApplication<Application>().contentResolver
-        cr.registerContentObserver(AndroidSettings.System.getUriFor("syu_radio_freq"), false, observer)
-        cr.registerContentObserver(AndroidSettings.System.getUriFor("fyt_radio_freq"), false, observer)
-        cr.registerContentObserver(AndroidSettings.System.getUriFor("syu_radio_band"), false, observer)
-        cr.registerContentObserver(AndroidSettings.System.getUriFor("fyt_radio_band"), false, observer)
-        fytRadioObserver = observer
     }
 
     // ── MediaSession radio backend (universal fallback) ───────────────────────
@@ -869,8 +832,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     // MCU backend wins when present; otherwise mirror the radio app's session
     val hardwareRadio: StateFlow<HardwareRadioState?> =
-        combine(_mcuRadio, _fytRadio, nowPlaying, settings) { mcu, fyt, np, _ ->
-            mcu ?: fyt ?: np?.let { parseSessionRadio(it) }
+        combine(_mcuRadio, nowPlaying, settings) { mcu, np, _ ->
+            mcu ?: np?.let { parseSessionRadio(it) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     private fun radioSessionController() = nowPlaying.value?.controller?.takeIf { c ->
@@ -896,70 +859,36 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     // Checksum = low byte of sum of all preceding bytes.
     // Wrapped with 0x0d 0x08 sub-command prefix for MCU_CMD_DATA.
     fun radioTune(band: String, freqMhz: Float) {
-        if (hasSzchoicewayMcu) {
-            val bandByte  = when (band) { "FM3" -> 0x03.toByte(); "AM" -> 0x04.toByte(); else -> 0x01.toByte() }
-            val bankStr   = if (band == "FM2") "02" else "01"
-            val freqStr   = if (band == "AM") String.format(java.util.Locale.US, "%.0f", freqMhz) else String.format(java.util.Locale.US, "%.1f", freqMhz)
-            val padding   = 9 - freqStr.length
-            val header    = byteArrayOf(0x5a.toByte(), 0xa5.toByte(), 0x0d.toByte())
-            val data      = byteArrayOf(0x91.toByte(), bandByte,
-                                bankStr[0].code.toByte(), bankStr[1].code.toByte()) +
-                            ByteArray(padding) +
-                            freqStr.map { it.code.toByte() }.toByteArray()
-            val frame     = header + data
-            val checksum  = (frame.sumOf { it.toInt() and 0xFF } and 0xFF).toByte()
-            val finalPayload = byteArrayOf(0x0d.toByte(), 0x08.toByte()) + frame + byteArrayOf(checksum)
-            sendMcuByteArray(finalPayload)
-        } else if (hasFytMcu) {
-            val freqInt = if (band.contains("AM")) freqMhz.toInt() else (freqMhz * 100).toInt()
-            val intent = Intent("com.syu.radio.frequency").apply {
-                putExtra("frequency", freqInt)
-                putExtra("value", freqInt)
-            }
-            getApplication<Application>().sendBroadcast(intent)
-        }
+        if (!hasSzchoicewayMcu) return // direct tuning is MCU-only
+        val bandByte  = when (band) { "FM3" -> 0x03.toByte(); "AM" -> 0x04.toByte(); else -> 0x01.toByte() }
+        val bankStr   = if (band == "FM2") "02" else "01"
+        val freqStr   = if (band == "AM") String.format(java.util.Locale.US, "%.0f", freqMhz) else String.format(java.util.Locale.US, "%.1f", freqMhz)
+        val padding   = 9 - freqStr.length
+        val header    = byteArrayOf(0x5a.toByte(), 0xa5.toByte(), 0x0d.toByte())
+        val data      = byteArrayOf(0x91.toByte(), bandByte,
+                            bankStr[0].code.toByte(), bankStr[1].code.toByte()) +
+                        ByteArray(padding) +
+                        freqStr.map { it.code.toByte() }.toByteArray()
+        val frame     = header + data
+        val checksum  = (frame.sumOf { it.toInt() and 0xFF } and 0xFF).toByte()
+        val finalPayload = byteArrayOf(0x0d.toByte(), 0x08.toByte()) + frame + byteArrayOf(checksum)
+        sendMcuByteArray(finalPayload)
     }
 
     private val mcuActive get() = _mcuRadio.value != null
-    private val fytActive get() = _fytRadio.value != null
 
     // Seek routes to the MCU when that backend is live, otherwise to the radio
     // app's MediaSession — skip next/prev is how these apps expose seek.
-    fun radioSeekUp()   { 
-        when {
-            mcuActive -> sendMcuBytes(0x02, 0x0f)
-            fytActive -> getApplication<Application>().sendBroadcast(Intent("com.syu.radio.next"))
-            else      -> radioSessionController()?.transportControls?.skipToNext()
-        }
-    }
-    fun radioSeekDown() { 
-        when {
-            mcuActive -> sendMcuBytes(0x02, 0x0e)
-            fytActive -> getApplication<Application>().sendBroadcast(Intent("com.syu.radio.prev"))
-            else      -> radioSessionController()?.transportControls?.skipToPrevious()
-        }
-    }
+    fun radioSeekUp()   { if (mcuActive) sendMcuBytes(0x02, 0x0f) else radioSessionController()?.transportControls?.skipToNext() }
+    fun radioSeekDown() { if (mcuActive) sendMcuBytes(0x02, 0x0e) else radioSessionController()?.transportControls?.skipToPrevious() }
     // Band switching and direct tuning only exist on the MCU backend
-    fun radioCycleFm()  { 
-        if (mcuActive) sendMcuBytes(0x02, 0x1e)
-        else if (fytActive) getApplication<Application>().sendBroadcast(Intent("com.syu.radio.band").apply { putExtra("band", 0) }) // cycle FM
-    }
-    fun radioSwitchAm() { 
-        if (mcuActive) sendMcuBytes(0x02, 0x1f)
-        else if (fytActive) getApplication<Application>().sendBroadcast(Intent("com.syu.radio.band").apply { putExtra("band", 3) }) // switch AM
-    }
-    fun radioStart()    { 
-        if (hasSzchoicewayMcu) sendMcuBytes(0x01, 0x01)
-        // FYT usually starts by just launching the app
-    }
-    fun radioStop()     { 
-        if (mcuActive) sendMcuBytes(0x01, 0x63)
-        else if (fytActive) getApplication<Application>().sendBroadcast(Intent("com.syu.radio.stop"))
-    }
+    fun radioCycleFm()  { if (mcuActive) sendMcuBytes(0x02, 0x1e) }
+    fun radioSwitchAm() { if (mcuActive) sendMcuBytes(0x02, 0x1f) }
+    fun radioStart()    { sendMcuBytes(0x01, 0x01) }
+    fun radioStop()     { sendMcuBytes(0x01, 0x63) }
 
     fun stopHardwareRadioApp() {
         if (mcuActive) radioStop()
-        else if (fytActive) radioStop()
         else radioSessionController()?.transportControls?.pause()
     }
 
@@ -968,7 +897,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         val pkg = settings.value.radioPackage.ifEmpty {
             when {
                 hasSzchoicewayMcu -> "com.szchoiceway.radio"
-                hasFytMcu         -> "com.syu.radio"
                 else              -> radioSessionController()?.packageName ?: ""
             }
         }
@@ -1025,8 +953,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         locationMgr.stop()
         radioObserver?.let { getApplication<Application>().contentResolver.unregisterContentObserver(it) }
         radioObserver = null
-        fytRadioObserver?.let { getApplication<Application>().contentResolver.unregisterContentObserver(it) }
-        fytRadioObserver = null
         telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
     }
 
@@ -1043,7 +969,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         refreshConnectivity()
         startSignalListeners()
         if (hasSzchoicewayMcu) startHardwareRadioObserver()
-        if (hasFytMcu) startFytRadioObserver()
         // Fetch weather on first location fix, then every 30 minutes.
         // The minute ticker covers the parked case where no location updates arrive.
         viewModelScope.launch {

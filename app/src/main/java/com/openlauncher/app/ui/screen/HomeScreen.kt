@@ -23,8 +23,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Adjust
@@ -467,7 +469,9 @@ private fun WidgetItem(
             )
             .then(
                 if (editMode) {
-                    Modifier.clickable { onLongClick(w.id) }
+                    // In edit mode, we rely on the three-dots button for the menu
+                    // to avoid interfering with drag gestures.
+                    Modifier
                 } else {
                     Modifier.pointerInput(w.id) {
                         detectTapGestures(onLongPress = { onLongClick(w.id) })
@@ -520,6 +524,25 @@ private fun WidgetItem(
                     // Overlay to capture touches in edit mode, as AndroidView consumes them
                     Box(modifier = Modifier.fillMaxSize().background(Color.Transparent))
                 }
+            }
+        }
+
+        // Three-dots menu button in edit mode
+        if (editMode) {
+            IconButton(
+                onClick = { onLongClick(w.id) },
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(4.dp)
+                    .size(26.dp)
+                    .background(Color.Black.copy(alpha = 0.3f), CircleShape)
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MoreVert,
+                    contentDescription = "Widget Options",
+                    tint = Color.White,
+                    modifier = Modifier.size(16.dp)
+                )
             }
         }
     }

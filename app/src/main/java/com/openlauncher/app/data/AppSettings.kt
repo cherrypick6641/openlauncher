@@ -52,7 +52,7 @@ data class ShortcutConfig(
 )
 
 const val GRID_COLS = 6
-const val GRID_ROWS = 4
+const val GRID_ROWS = 5
 
 data class WidgetConfig(
     val id: String,          // Unique identifier

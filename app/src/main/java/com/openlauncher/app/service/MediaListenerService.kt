@@ -111,8 +111,25 @@ class MediaListenerService : NotificationListenerService() {
             ?: meta?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
             ?: ""
-        // Prefer the largest bitmap the source provides; many apps put a
-        // downscaled image in ALBUM_ART and the full one in ART (or vice versa)
+        val artUri = meta?.getString(MediaMetadata.METADATA_KEY_ART_URI)
+            ?: meta?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
+            ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
+        val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
+
+        val prev = _nowPlaying.value
+
+        // Optimization: check if metadata/state changed before extracting bitmaps
+        val sameSong = prev?.title == title && prev?.artist == artist
+        val sameArtUri = prev?.artUri == artUri
+        val sameSession = prev?.controller?.sessionToken == controller.sessionToken
+        val sameState = prev?.isPlaying == isPlaying
+
+        // If it's the same track and we already have artwork (URI or Bitmap), skip redundant updates
+        if (prev != null && sameSession && sameSong && sameArtUri && sameState && (prev.albumArt != null || prev.artUri != null)) {
+            return
+        }
+
+        // Only extract bitmap if we don't have a URI or if the song changed
         val art = try {
             listOfNotNull(
                 meta?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART),
@@ -120,30 +137,6 @@ class MediaListenerService : NotificationListenerService() {
                 meta?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
             ).maxByOrNull { it.width * it.height }
         } catch (_: Exception) { null }
-        val artUri = meta?.getString(MediaMetadata.METADATA_KEY_ART_URI)
-            ?: meta?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
-            ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_ICON_URI)
-        val isPlaying = controller.playbackState?.state == PlaybackState.STATE_PLAYING
-
-        // Skip redundant emissions: metadata bitmaps parcel into fresh instances on
-        // every read, so a plain data-class compare would never match and every
-        // notification would force a recomposition + art redraw.
-        val prev = _nowPlaying.value
-
-        val sameSong =
-        prev?.title == title &&
-        prev.artist == artist
-
-        val sameArt =
-        prev?.artUri == artUri &&
-        artUri != null
-
-        if (prev != null &&
-            prev.controller?.sessionToken == controller.sessionToken &&
-            sameSong &&
-            prev.isPlaying == isPlaying &&
-            sameArt
-        ) return
 
         _nowPlaying.value = NowPlayingState(
             title      = title,

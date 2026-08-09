@@ -36,6 +36,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import com.openlauncher.app.ui.components.ColorPickerDialog
 import com.openlauncher.app.ui.components.ConfirmDialog
+import com.openlauncher.app.BuildConfig
 
 // Resolved at call site via LocalDayMode — see SettingsDivider / SettingsSection
 
@@ -807,7 +808,7 @@ fun SettingsScreen(
         Spacer(Modifier.height(32.dp))
 
         Text(
-            text          = "v1.5.0  ·  Made by David Lam modded by Cherrypick6641  ·  2026",
+            text          = "v${BuildConfig.VERSION_NAME}  ·  Made by David Lam modded by Cherrypick6641  ·  2026",
             color         = if (isDayMode) Color(0xFFAAAAAA) else Color(0xFF2A2A2A),
             fontSize      = 10.sp,
             letterSpacing = 1.sp,
