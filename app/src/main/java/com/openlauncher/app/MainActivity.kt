@@ -1,39 +1,53 @@
 package com.openlauncher.app
 
 import android.Manifest
+import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
-import androidx.compose.animation.*
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.*
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.runtime.*
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import kotlinx.coroutines.delay
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import android.appwidget.AppWidgetManager
-import coil.compose.AsyncImage
 import com.openlauncher.app.data.DayNightMode
-import com.openlauncher.app.data.SidebarPosition
 import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.ui.components.Sidebar
-import com.openlauncher.app.ui.screen.*
+import com.openlauncher.app.ui.screen.AppLibraryScreen
+import com.openlauncher.app.ui.screen.HomeScreen
+import com.openlauncher.app.ui.screen.OnboardingScreen
+import com.openlauncher.app.ui.screen.SettingsScreen
 import com.openlauncher.app.ui.theme.OpenLauncherTheme
 import com.openlauncher.app.viewmodel.LauncherViewModel
+import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
 
@@ -198,6 +212,7 @@ class MainActivity : ComponentActivity() {
                         appPickerTarget = appPickerTarget,
                         editMode = editMode,
                         onSetEditMode = { vm.toggleRearrangeMode() },
+                        onSetNowPlayingCompact = { compact -> vm.updateSettings { copy(nowPlayingCompact = compact) } },
                         widgetLibraryOpen = widgetLibraryOpen,
                         onSetWidgetLibraryOpen = { vm.setWidgetLibraryOpen(it) },
                         accent = accent,
@@ -273,6 +288,7 @@ private fun MainContentShell(
     appPickerTarget: com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget?,
     editMode: Boolean,
     onSetEditMode: (Boolean) -> Unit,
+    onSetNowPlayingCompact: (Boolean) -> Unit,
     widgetLibraryOpen: Boolean,
     onSetWidgetLibraryOpen: (Boolean) -> Unit,
     accent: Color,
@@ -384,6 +400,7 @@ private fun MainContentShell(
                         onAddWidget         = { id -> vm.addWidget(id) },
                         onRemoveWidget      = { id -> vm.removeWidget(id) },
                         onSetClockStyle     = { style -> vm.updateSettings { copy(clockStyle = style) } },
+                        onSetNowPlayingCompact = onSetNowPlayingCompact,
                         onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
                         onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
                         onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },

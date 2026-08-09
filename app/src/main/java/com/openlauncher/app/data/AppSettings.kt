@@ -79,6 +79,7 @@ data class AppSettings(
     val showClock: Boolean = false,
     val showTelemetry: Boolean = true,
     val showNowPlaying: Boolean = true,
+    val nowPlayingCompact: Boolean = false,
     val shortcuts: List<ShortcutConfig> = defaultShortcuts(),
     val widgetLayout: List<WidgetConfig> = defaultWidgetLayout(),
     val carPlayPackage: String = "",

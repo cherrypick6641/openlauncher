@@ -26,7 +26,6 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.AccessTime
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Adjust
@@ -42,6 +41,7 @@ import androidx.compose.material.icons.filled.FlightTakeoff
 import androidx.compose.material.icons.filled.FormatAlignLeft
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.OpenWith
 import androidx.compose.material.icons.filled.PhoneAndroid
@@ -96,9 +96,7 @@ import com.openlauncher.app.ui.widget.TelemetryWidget
 import com.openlauncher.app.ui.widget.TripTrackerWidget
 import com.openlauncher.app.ui.widget.VitalsWidget
 import com.openlauncher.app.ui.widget.WeatherWidget
-import com.openlauncher.app.ui.widget.clockTimeLabel
 import com.openlauncher.app.util.LocationData
-import java.util.Calendar
 import kotlin.math.roundToInt
 
 private data class WidgetTypeInfo(
@@ -165,6 +163,7 @@ fun HomeScreen(
     onAddWidget: (id: String) -> Unit,
     onRemoveWidget: (id: String) -> Unit,
     onSetClockStyle: (ClockStyle) -> Unit,
+    onSetNowPlayingCompact: (Boolean) -> Unit = {},
     onSetVitalsAsBars: (Boolean) -> Unit = {},
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit = {},
     onUpdateSoundPad: (index: Int, pad: com.openlauncher.app.data.SoundPadConfig) -> Unit = { _, _ -> },
@@ -319,6 +318,7 @@ fun HomeScreen(
                     onSetMapType = onSetMapType,
                     appWidgetHost = appWidgetHost,
                     onLongClick = { contextMenuId = it },
+                    onSetNowPlayingCompact = onSetNowPlayingCompact,
                     onDragStart = { draggingId = it },
                     onDragUpdate = { dragOffsetPx = it },
                     onDragEnd = { draggingId = null; dragOffsetPx = Offset.Zero },
@@ -351,6 +351,7 @@ fun HomeScreen(
             onAssignPip         = { contextMenuId = null; onAssignPip() },
             onClearPip          = { contextMenuId = null; onClearPip() },
             onSetClockStyle     = { onSetClockStyle(it) },
+            onSetNowPlayingCompact = { onSetNowPlayingCompact(it) },
             onSetVitalsAsBars   = { onSetVitalsAsBars(it) },
             onSetSpeedometerDigitalOnly = { onSetSpeedometerDigitalOnly(it) },
             onRemove            = { onRemoveWidget(id) },
@@ -433,6 +434,7 @@ private fun WidgetItem(
     onSetMapType: (com.openlauncher.app.data.MapType) -> Unit,
     appWidgetHost: android.appwidget.AppWidgetHost,
     onLongClick: (String) -> Unit,
+    onSetNowPlayingCompact: (Boolean) -> Unit,
     onDragStart: (String) -> Unit,
     onDragUpdate: (Offset) -> Unit,
     onDragEnd: () -> Unit,
@@ -509,7 +511,7 @@ private fun WidgetItem(
         when (w.id) {
             "CLOCK" -> ClockWidget(style = settings.clockStyle, accent = accent, isDayMode = isDayMode, modifier = Modifier.fillMaxSize())
             "WEATHER" -> WeatherWidget(state = weather, accent = accent, metric = settings.unitSystem.name == "METRIC", isDayMode = isDayMode, modifier = Modifier.fillMaxSize())
-            "NOW_PLAYING" -> NowPlayingWidget(state = nowPlaying, accent = accent, carPlayPackage = settings.carPlayPackage, androidAutoPackage = settings.androidAutoPackage, onPlayPause = onPlayPause, onNext = onNext, onPrev = onPrev, onLaunchCarPlay = onLaunchCarPlay, onLaunchAndroidAuto = onLaunchAndroidAuto, onTapToOpenApp = onTapNowPlaying, modifier = Modifier.fillMaxSize(), isEditing = editMode, isDayMode = isDayMode, hardwareRadio = hardwareRadio, onLaunchHardwareRadio = onLaunchHardwareRadio, onStopHardwareRadio = onStopHardwareRadio, onRadioSeekUp = onRadioSeekUp, onRadioSeekDown = onRadioSeekDown, onRadioCycleFm = onRadioCycleFm, onRadioSwitchAm = onRadioSwitchAm, onRadioTune = onRadioTune, onAssignRadio = onAssignRadio)
+            "NOW_PLAYING" -> NowPlayingWidget(state = nowPlaying, accent = accent, carPlayPackage = settings.carPlayPackage, androidAutoPackage = settings.androidAutoPackage, onPlayPause = onPlayPause, onNext = onNext, onPrev = onPrev, onLaunchCarPlay = onLaunchCarPlay, onLaunchAndroidAuto = onLaunchAndroidAuto, onTapToOpenApp = onTapNowPlaying, modifier = Modifier.fillMaxSize(), isEditing = editMode, isDayMode = isDayMode, isCompact = settings.nowPlayingCompact, onSetCompact = onSetNowPlayingCompact, hardwareRadio = hardwareRadio, onLaunchHardwareRadio = onLaunchHardwareRadio, onStopHardwareRadio = onStopHardwareRadio, onRadioSeekUp = onRadioSeekUp, onRadioSeekDown = onRadioSeekDown, onRadioCycleFm = onRadioCycleFm, onRadioSwitchAm = onRadioSwitchAm, onRadioTune = onRadioTune, onAssignRadio = onAssignRadio)
             "TELEMETRY" -> TelemetryWidget(location = location, bearing = (bearing + settings.compassOffset + 360f) % 360f, accent = accent, isDayMode = isDayMode, modifier = Modifier.fillMaxSize())
             "ALTIMETER" -> AltimeterWidget(location = location, isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC, accent = accent, isDayMode = isDayMode, modifier = Modifier.fillMaxSize())
             "SPEEDOMETER" -> SpeedometerWidget(location = location, isMetric  = settings.unitSystem == com.openlauncher.app.data.UnitSystem.METRIC, accent = accent, isDayMode = isDayMode, digitalOnly = settings.speedometerDigitalOnly, modifier = Modifier.fillMaxSize())
@@ -596,6 +598,7 @@ private fun WidgetContextMenu(
     onAssignPip: () -> Unit,
     onClearPip: () -> Unit,
     onSetClockStyle: (ClockStyle) -> Unit,
+    onSetNowPlayingCompact: (Boolean) -> Unit,
     onSetVitalsAsBars: (Boolean) -> Unit,
     onSetSpeedometerDigitalOnly: (Boolean) -> Unit,
     onRemove: () -> Unit,
@@ -637,6 +640,8 @@ private fun WidgetContextMenu(
                 ContextRow("DIGITAL ONLY", Icons.Default.Dialpad, if (speedometerDigitalOnly) accent else inactiveMenuTint, { onSetSpeedometerDigitalOnly(true); onDismiss() }, isDayMode)
             }
             if (widgetId == "NOW_PLAYING") {
+                HorizontalDivider(color = menuDivider)
+                ContextRow(if (settings.nowPlayingCompact) "FULL PLAYER" else "COMPACT PLAYER", Icons.Default.MusicNote, accent, { onSetNowPlayingCompact(!settings.nowPlayingCompact); onDismiss() }, isDayMode)
                 HorizontalDivider(color = menuDivider)
                 ContextRow("ASSIGN CARPLAY APP", Icons.Default.PhoneAndroid, accent, onAssignCarPlay, isDayMode)
                 if (carPlayPackage.isNotEmpty()) {

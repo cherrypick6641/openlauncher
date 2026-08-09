@@ -1,6 +1,8 @@
 package com.openlauncher.app.viewmodel
 
 import android.app.Application
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -9,20 +11,21 @@ import android.database.ContentObserver
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
-import android.telephony.PhoneStateListener
-import android.telephony.SignalStrength
-import android.telephony.TelephonyManager
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
-import android.provider.Settings as AndroidSettings
+import android.telephony.PhoneStateListener
+import android.telephony.SignalStrength
+import android.telephony.TelephonyManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.google.gson.Gson
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.DefaultShortcutIcon
 import com.openlauncher.app.data.GRID_COLS
 import com.openlauncher.app.data.GRID_ROWS
+import com.openlauncher.app.data.MapProvider
 import com.openlauncher.app.data.SettingsRepository
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.data.SoundPadConfig
@@ -30,7 +33,6 @@ import com.openlauncher.app.data.WeatherApi
 import com.openlauncher.app.data.activeWidgetIds
 import com.openlauncher.app.data.computeWidgetMove
 import com.openlauncher.app.data.defaultShortcuts
-import com.openlauncher.app.util.SunriseSunset
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
@@ -38,15 +40,23 @@ import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.util.LocationCompassManager
 import com.openlauncher.app.util.LocationData
-import kotlinx.coroutines.*
-import kotlinx.coroutines.flow.*
-import com.openlauncher.app.data.MapProvider
-import com.google.gson.Gson
-import kotlinx.coroutines.withContext
+import com.openlauncher.app.util.SunriseSunset
 import kotlinx.coroutines.Dispatchers
-import android.appwidget.AppWidgetHost
-import android.appwidget.AppWidgetManager
-import android.appwidget.AppWidgetProviderInfo
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.mapNotNull
+import kotlinx.coroutines.flow.merge
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import android.provider.Settings as AndroidSettings
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 

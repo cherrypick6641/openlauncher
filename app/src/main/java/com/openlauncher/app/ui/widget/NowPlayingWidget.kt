@@ -7,7 +7,19 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -21,13 +33,28 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.Radio
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
@@ -37,12 +64,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.service.MediaListenerService
-import kotlin.math.abs
-import kotlinx.coroutines.delay
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.StrokeCap
-import kotlin.math.sin
 import com.openlauncher.app.viewmodel.LauncherViewModel
+import kotlinx.coroutines.delay
+import kotlin.math.abs
+import kotlin.math.sin
 
 @Composable
 fun NowPlayingWidget(
@@ -59,6 +84,8 @@ fun NowPlayingWidget(
     modifier: Modifier = Modifier,
     isEditing: Boolean = false,
     isDayMode: Boolean = false,
+    isCompact: Boolean = false,
+    onSetCompact: (Boolean) -> Unit = {},
     hardwareRadio: LauncherViewModel.HardwareRadioState? = null,
     onLaunchHardwareRadio: () -> Unit = {},
     onStopHardwareRadio: () -> Unit = {},
@@ -122,6 +149,7 @@ fun NowPlayingWidget(
                 hasContent = hasContent,
                 isEditing = isEditing,
                 isDayMode = isDayMode,
+                isCompact = isCompact,
                 isConnected = isConnected,
                 hasCarPlay = hasCarPlay,
                 hasAutoApp = hasAutoApp,
@@ -178,6 +206,16 @@ fun NowPlayingWidget(
                     },
                     leadingIcon = { Icon(Icons.Default.Radio, null, tint = accent, modifier = Modifier.size(14.dp)) }
                 )
+                if (selectedSource == "Any Player") {
+                    DropdownMenuItem(
+                        text = { Text(if (isCompact) "Full Mode" else "Compact Mode", color = dropdownText, fontSize = 11.sp) },
+                        onClick = {
+                            onSetCompact(!isCompact)
+                            menuExpanded = false
+                        },
+                        leadingIcon = { Icon(if (isCompact) Icons.Default.MusicNote else Icons.Default.MusicNote, null, tint = accent, modifier = Modifier.size(14.dp)) }
+                    )
+                }
             }
         }
     }
@@ -574,6 +612,7 @@ private fun StandardMinimalPlayer(
     hasContent: Boolean,
     isEditing: Boolean,
     isDayMode: Boolean,
+    isCompact: Boolean,
     isConnected: Boolean,
     hasCarPlay: Boolean,
     hasAutoApp: Boolean,
@@ -712,159 +751,216 @@ private fun StandardMinimalPlayer(
 
             val currentTextColor = if (hasAlbumArt) Color.White else if (isDayMode) Color(0xFF111111) else MaterialTheme.colorScheme.onBackground
             val currentSubTextColor = if (hasAlbumArt) Color.White.copy(alpha = 0.6f) else if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-            val currentProgressColor = if (useDarkTheme) accent else if (isDayMode) Color(0xFF111111) else accent
+            val currentProgressColor = if (useDarkTheme) accent else Color(0xFF111111)
             val currentProgressTrack = currentTextColor.copy(alpha = 0.15f)
             val currentIconColor = currentTextColor.copy(alpha = 0.75f)
-            val currentPlayBgColor = if (useDarkTheme) accent.copy(alpha = 0.9f) else if (isDayMode) Color(0xFF111111) else accent.copy(alpha = 0.9f)
+            val currentPlayBgColor = if (useDarkTheme) accent.copy(alpha = 0.9f) else Color(0xFF111111)
             val currentPlayIconColor = if (useDarkTheme) Color.White else Color.Black
 
-            if (hasAlbumArt) {
-                // Reworked art loading: Use ImageRequest for better caching/crossfade
-                val context = LocalContext.current
-                val imageRequest = remember(artworkModel) {
-                    coil.request.ImageRequest.Builder(context)
-                        .data(artworkModel)
-                        .crossfade(true)
-                        .diskCacheKey("${nonNullState.title}-${nonNullState.artist}")
-                        .build()
-                }
+            if (!isCompact) {
+                if (hasAlbumArt) {
+                    // Reworked art loading: Use ImageRequest for better caching/crossfade
+                    val context = LocalContext.current
+                    val imageRequest = remember(artworkModel) {
+                        coil.request.ImageRequest.Builder(context)
+                            .data(artworkModel)
+                            .crossfade(true)
+                            .diskCacheKey("${nonNullState.title}-${nonNullState.artist}")
+                            .build()
+                    }
 
-                coil.compose.AsyncImage(
-                    model = imageRequest,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
-                    // Show a dim placeholder while the art loads
-                    placeholder = androidx.compose.ui.graphics.painter.ColorPainter(Color.Black.copy(alpha = 0.5f)),
-                    modifier = Modifier.fillMaxSize()
-                )
-                // 35% dimming layer overlay for better readability on art
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black.copy(alpha = 0.35f))
-                )
-            }
-
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 14.dp, vertical = 10.dp),
-                verticalArrangement = Arrangement.SpaceBetween
-            ) {
-                // Track info (top — clickable to open app)
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                    modifier = Modifier
-                        .padding(top = 16.dp)
-                        .let { if (!isEditing) it.clickable { onTapToOpenApp() } else it }
-                ) {
-
-                }
-
-                // Progress + controls (bottom)
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    // Track info (top — clickable to open app)
+                    coil.compose.AsyncImage(
+                        model = imageRequest,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        filterQuality = androidx.compose.ui.graphics.FilterQuality.High,
+                        // Show a dim placeholder while the art loads
+                        placeholder = androidx.compose.ui.graphics.painter.ColorPainter(Color.Black.copy(alpha = 0.5f)),
+                        modifier = Modifier.fillMaxSize()
+                    )
+                    // 35% dimming layer overlay for better readability on art
                     Box(
                         modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(60.dp))
-                        .background(Color.Black.copy(alpha = 0.35f))
-                        .let {
-                            if (!isEditing) {
-                                it.clickable { onTapToOpenApp() }
-                            } else {
-                                it
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = 0.35f))
+                    )
+                }
+            }
+
+            if (isCompact) {
+                Row(
+                    modifier = Modifier.fillMaxSize().padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Left: Album Cover (Rectangle)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxHeight()
+                            .aspectRatio(1f)
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF1A1A1A))
+                    ) {
+                        if (hasAlbumArt) {
+                            coil.compose.AsyncImage(
+                                model = artworkModel,
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            Icon(
+                                Icons.Default.MusicNote, null,
+                                tint = accent.copy(alpha = 0.5f),
+                                modifier = Modifier.size(24.dp).align(Alignment.Center)
+                            )
+                        }
+                    }
+
+                    // Right: Info
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Text(
+                            text = nonNullState.title,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = currentTextColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = nonNullState.artist.ifEmpty { "Unknown" },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = currentSubTextColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            } else {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.SpaceBetween
+                ) {
+                    // Track info (top — clickable to open app)
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                        modifier = Modifier
+                            .padding(top = 16.dp)
+                            .let { if (!isEditing) it.clickable { onTapToOpenApp() } else it }
+                    ) {
+
+                    }
+
+                    // Progress + controls (bottom)
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        // Track info (top — clickable to open app)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(60.dp))
+                                .background(Color.Black.copy(alpha = 0.35f))
+                                .let {
+                                    if (!isEditing) {
+                                        it.clickable { onTapToOpenApp() }
+                                    } else {
+                                        it
+                                    }
+                                }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
+                                Text(
+                                    text = nonNullState.title,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    color = currentTextColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 14.sp
+                                )
+
+                                Text(
+                                    text = nonNullState.artist.ifEmpty { "Unknown" },
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = currentSubTextColor,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    fontSize = 11.sp
+                                )
                             }
                         }
-                        .padding(horizontal = 12.dp, vertical = 8.dp)
-                    ) {
-                        Column(
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                text = nonNullState.title,
-                                 style = MaterialTheme.typography.titleMedium,
-                                 color = currentTextColor,
-                                 maxLines = 1,
-                                 overflow = TextOverflow.Ellipsis,
-                                 fontSize = 14.sp
+                        if (durationMs > 0) {
+                            WaveProgressIndicator(
+                                progress = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
+                                color = currentProgressColor,
+                                trackColor = currentProgressTrack,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(14.dp)
                             )
-
-                            Text(
-                                text = nonNullState.artist.ifEmpty { "Unknown" },
-                                 style = MaterialTheme.typography.bodySmall,
-                                 color = currentSubTextColor,
-                                 maxLines = 1,
-                                 overflow = TextOverflow.Ellipsis,
-                                 fontSize = 11.sp
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Text(formatMs(positionMs), style = MaterialTheme.typography.labelSmall, color = currentSubTextColor.copy(alpha = 0.75f), fontSize = 9.sp)
+                                Text(formatMs(durationMs), style = MaterialTheme.typography.labelSmall, color = currentSubTextColor.copy(alpha = 0.75f), fontSize = 9.sp)
+                            }
                         }
-                    }
-                    if (durationMs > 0) {
-                        WaveProgressIndicator(
-                            progress = (positionMs.toFloat() / durationMs).coerceIn(0f, 1f),
-                                              color = currentProgressColor,
-                                              trackColor = currentProgressTrack,
-                                              modifier = Modifier
-                                              .fillMaxWidth()
-                                              .height(14.dp)
-                        )
+
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(formatMs(positionMs), style = MaterialTheme.typography.labelSmall, color = currentSubTextColor.copy(alpha = 0.75f), fontSize = 9.sp)
-                            Text(formatMs(durationMs), style = MaterialTheme.typography.labelSmall, color = currentSubTextColor.copy(alpha = 0.75f), fontSize = 9.sp)
-                        }
-                    }
+                            // button Prev
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Black.copy(alpha = 0.15f))
+                                    .clickable(enabled = !isEditing) { onPrev() }
+                            ) {
+                                Icon(Icons.Default.SkipPrevious, "Prev", tint = currentIconColor, modifier = Modifier.size(30.dp))
+                            }
 
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        // button Prev
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.Black.copy(alpha = 0.15f))
-                            .clickable(enabled = !isEditing) { onPrev() }
-                        ) {
-                            Icon(Icons.Default.SkipPrevious, "Prev", tint = currentIconColor, modifier = Modifier.size(30.dp))
-                        }
-
-                        // button play and pause
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                            .size(54.dp)
-                            .clip(CircleShape)
-                            .background(currentPlayBgColor)
-                            // Pasamos el click aquí. Si está editando, se deshabilita tanto el click como el efecto visual (ripple)
-                            .clickable(enabled = !isEditing) { onPlayPause() }
-                        ) {
-                            Icon(
-                                imageVector = if (nonNullState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                 contentDescription = if (nonNullState.isPlaying) "Pause" else "Play",
-                                 tint = currentPlayIconColor,
-                                 modifier = Modifier
-                                 .size(44.dp)
-                                 .offset(x = if (!nonNullState.isPlaying) -1.dp else 0.dp)
-                            )
-                        }
-                        // button Next
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Color.Black.copy(alpha = 0.15f))
-                            .clickable(enabled = !isEditing) { onNext() }
-                        ) {
-                            Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(30.dp))
+                            // button play and pause
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(54.dp)
+                                    .clip(CircleShape)
+                                    .background(currentPlayBgColor)
+                                    // Pasamos el click aquí. Si está editando, se deshabilita tanto el click como el efecto visual (ripple)
+                                    .clickable(enabled = !isEditing) { onPlayPause() }
+                            ) {
+                                Icon(
+                                    imageVector = if (nonNullState.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    contentDescription = if (nonNullState.isPlaying) "Pause" else "Play",
+                                    tint = currentPlayIconColor,
+                                    modifier = Modifier
+                                        .size(44.dp)
+                                        .offset(x = if (!nonNullState.isPlaying) -1.dp else 0.dp)
+                                )
+                            }
+                            // button Next
+                            Box(
+                                contentAlignment = Alignment.Center,
+                                modifier = Modifier
+                                    .size(40.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(Color.Black.copy(alpha = 0.15f))
+                                    .clickable(enabled = !isEditing) { onNext() }
+                            ) {
+                                Icon(Icons.Default.SkipNext, "Next", tint = currentIconColor, modifier = Modifier.size(30.dp))
+                            }
                         }
                     }
                 }

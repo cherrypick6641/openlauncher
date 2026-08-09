@@ -2,7 +2,14 @@ package com.openlauncher.app.data
 
 import android.content.Context
 import androidx.datastore.core.DataStore
-import androidx.datastore.preferences.core.*
+import androidx.datastore.preferences.core.MutablePreferences
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
+import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.google.gson.Gson
 import com.google.gson.reflect.TypeToken
@@ -32,6 +39,7 @@ class SettingsRepository(private val context: Context) {
         val SHOW_CLOCK         = booleanPreferencesKey("show_clock")
         val SHOW_TELEMETRY     = booleanPreferencesKey("show_telemetry")
         val SHOW_NOW_PLAYING   = booleanPreferencesKey("show_now_playing")
+        val NOW_PLAYING_COMPACT = booleanPreferencesKey("now_playing_compact")
         val SHOW_ALTIMETER     = booleanPreferencesKey("show_altimeter")
         val SHOW_SPEEDOMETER   = booleanPreferencesKey("show_speedometer")
         val SHORTCUTS_JSON     = stringPreferencesKey("shortcuts_json")
@@ -109,6 +117,7 @@ class SettingsRepository(private val context: Context) {
                 showClock      = prefs[Keys.SHOW_CLOCK]       ?: defaults.showClock,
                 showTelemetry  = prefs[Keys.SHOW_TELEMETRY]   ?: defaults.showTelemetry,
                 showNowPlaying = prefs[Keys.SHOW_NOW_PLAYING] ?: defaults.showNowPlaying,
+                nowPlayingCompact = prefs[Keys.NOW_PLAYING_COMPACT] ?: defaults.nowPlayingCompact,
                 showAltimeter   = prefs[Keys.SHOW_ALTIMETER]   ?: defaults.showAltimeter,
                 showSpeedometer = prefs[Keys.SHOW_SPEEDOMETER] ?: defaults.showSpeedometer,
                 shortcuts      = shortcuts,
@@ -179,6 +188,7 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SHOW_CLOCK]         = s.showClock
             prefs[Keys.SHOW_TELEMETRY]     = s.showTelemetry
             prefs[Keys.SHOW_NOW_PLAYING]   = s.showNowPlaying
+            prefs[Keys.NOW_PLAYING_COMPACT] = s.nowPlayingCompact
             prefs[Keys.SHOW_ALTIMETER]     = s.showAltimeter
             prefs[Keys.SHOW_SPEEDOMETER]   = s.showSpeedometer
             prefs[Keys.SHORTCUTS_JSON]     = gson.toJson(s.shortcuts)

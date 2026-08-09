@@ -1,7 +1,13 @@
 package com.openlauncher.app.util
 
 import java.util.Calendar
-import kotlin.math.*
+import kotlin.math.acos
+import kotlin.math.asin
+import kotlin.math.atan
+import kotlin.math.cos
+import kotlin.math.floor
+import kotlin.math.sin
+import kotlin.math.tan
 
 object SunriseSunset {
 
