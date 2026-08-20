@@ -94,8 +94,6 @@ data class AppSettings(
     val dayNightMode: DayNightMode = DayNightMode.DARK,
     val showPip: Boolean = false,
     val pipAppPackage: String = "",
-    // Head unit's radio app — mirrored & controlled via its MediaSession
-    val radioPackage: String = "",
     val onboardingCompleted: Boolean = false,
     val showVitals: Boolean = false,
     val showTripTracker: Boolean = false,

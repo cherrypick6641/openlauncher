@@ -141,7 +141,6 @@ class MainActivity : ComponentActivity() {
             val wifiLevel   by vm.wifiLevel.collectAsStateWithLifecycle()
             val mobileLevel by vm.mobileLevel.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
-            val hardwareRadio by vm.hardwareRadio.collectAsStateWithLifecycle()
             val appIconMap  by vm.appIconMap.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
@@ -206,7 +205,6 @@ class MainActivity : ComponentActivity() {
                         wifiLevel = wifiLevel,
                         mobileLevel = mobileLevel,
                         isDayMode = isDayMode,
-                        hardwareRadio = hardwareRadio,
                         appIconMap = appIconMap,
                         pickerSlot = pickerSlot,
                         appPickerTarget = appPickerTarget,
@@ -282,7 +280,6 @@ private fun MainContentShell(
     wifiLevel: Int,
     mobileLevel: Int,
     isDayMode: Boolean,
-    hardwareRadio: com.openlauncher.app.viewmodel.LauncherViewModel.HardwareRadioState?,
     appIconMap: Map<String, android.graphics.drawable.Drawable>,
     pickerSlot: Int?,
     appPickerTarget: com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget?,
@@ -404,15 +401,6 @@ private fun MainContentShell(
                         onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
                         onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
                         onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },
-                        hardwareRadio         = hardwareRadio,
-                        onLaunchHardwareRadio = { vm.launchHardwareRadioApp() },
-                        onStopHardwareRadio   = { vm.stopHardwareRadioApp() },
-                        onRadioSeekUp         = { vm.radioSeekUp() },
-                        onRadioSeekDown       = { vm.radioSeekDown() },
-                        onRadioCycleFm        = { vm.radioCycleFm() },
-                        onRadioSwitchAm       = { vm.radioSwitchAm() },
-                        onRadioTune           = { band, freq -> vm.radioTune(band, freq) },
-                        onAssignRadio         = { vm.startRadioPicker() },
                         onToggleMapProvider = { vm.toggleMapProvider() },
                         onToggleTraffic     = { vm.toggleTraffic() },
                         onSetMapType        = { vm.setMapType(it) },
@@ -440,7 +428,6 @@ private fun MainContentShell(
                             carPlayPickerLabel  = when (appPickerTarget) {
                                 LauncherViewModel.AppPickerTarget.ANDROID_AUTO -> "CHOOSE ANDROID AUTO APP"
                                 LauncherViewModel.AppPickerTarget.PIP          -> "CHOOSE PIP APP"
-                                LauncherViewModel.AppPickerTarget.RADIO        -> "CHOOSE RADIO APP"
                                 LauncherViewModel.AppPickerTarget.AUTOSTART_1 -> "CHOOSE AUTOSTART APP 1"
                                 LauncherViewModel.AppPickerTarget.AUTOSTART_2 -> "CHOOSE AUTOSTART APP 2"
                                 LauncherViewModel.AppPickerTarget.AUTOSTART_3 -> "CHOOSE AUTOSTART APP 3"

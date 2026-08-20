@@ -55,7 +55,6 @@ class SettingsRepository(private val context: Context) {
         val DAY_NIGHT_MODE        = stringPreferencesKey("day_night_mode")
         val SHOW_PIP              = booleanPreferencesKey("show_pip")
         val PIP_APP_PACKAGE       = stringPreferencesKey("pip_app_package")
-        val RADIO_PACKAGE         = stringPreferencesKey("radio_package")
         val ONBOARDING_COMPLETED  = booleanPreferencesKey("onboarding_completed")
         val SHOW_VITALS           = booleanPreferencesKey("show_vitals")
         val SHOW_TRIP_TRACKER     = booleanPreferencesKey("show_trip_tracker")
@@ -133,7 +132,6 @@ class SettingsRepository(private val context: Context) {
                 dayNightMode     = prefs[Keys.DAY_NIGHT_MODE]?.let { runCatching { DayNightMode.valueOf(it) }.getOrNull() } ?: defaults.dayNightMode,
                 showPip          = prefs[Keys.SHOW_PIP]         ?: defaults.showPip,
                 pipAppPackage    = prefs[Keys.PIP_APP_PACKAGE]  ?: defaults.pipAppPackage,
-                radioPackage     = prefs[Keys.RADIO_PACKAGE]    ?: defaults.radioPackage,
                 onboardingCompleted = prefs[Keys.ONBOARDING_COMPLETED] ?: defaults.onboardingCompleted,
                 showVitals       = prefs[Keys.SHOW_VITALS]      ?: defaults.showVitals,
                 showTripTracker  = prefs[Keys.SHOW_TRIP_TRACKER] ?: defaults.showTripTracker,
@@ -203,7 +201,6 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.DAY_NIGHT_MODE]     = s.dayNightMode.name
             prefs[Keys.SHOW_PIP]           = s.showPip
             prefs[Keys.PIP_APP_PACKAGE]    = s.pipAppPackage
-            prefs[Keys.RADIO_PACKAGE]      = s.radioPackage
             prefs[Keys.ONBOARDING_COMPLETED] = s.onboardingCompleted
             prefs[Keys.SHOW_VITALS]        = s.showVitals
             prefs[Keys.SHOW_TRIP_TRACKER]  = s.showTripTracker
