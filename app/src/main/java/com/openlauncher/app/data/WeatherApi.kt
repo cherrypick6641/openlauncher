@@ -14,7 +14,9 @@ data class OpenMeteoResponse(
 
 data class CurrentWeather(
     @SerializedName("temperature") val temperature: Double,
-                          @SerializedName("weathercode") val weathercode: Int
+    @SerializedName("windspeed") val windspeed: Double = 0.0,
+    @SerializedName("winddirection") val winddirection: Double = 0.0,
+    @SerializedName("weathercode") val weathercode: Int = 0
 )
 
 // ESTA CLASE FALTABA O ESTABA EN OTRO LUGAR

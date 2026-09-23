@@ -7,11 +7,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.location.Geocoder
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.Handler
 import android.os.Looper
 import android.telephony.PhoneStateListener
 import android.telephony.SignalStrength
@@ -55,6 +55,7 @@ import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Locale
 
 class LauncherViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -614,29 +615,51 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
             weatherJob?.cancel()
             weatherJob = viewModelScope.launch {
                 try {
-                    // INTENTAR TRAER DE INTERNET (Hay Wi-Fi/Datos)
                     val resp = WeatherApi.service.getForecast(lat, lon, temperatureUnit = "celsius")
                     val daily = resp.dailyData
                     val current = resp.currentWeather
+
+                    val locationName = try {
+                        val geocoder = Geocoder(getApplication(), Locale.getDefault())
+                        val addresses = withContext(Dispatchers.IO) {
+                            @Suppress("DEPRECATION")
+                            geocoder.getFromLocation(lat, lon, 1)
+                        }
+                        addresses?.firstOrNull()?.let { addr ->
+                            val raw = addr.locality ?: addr.subLocality ?: addr.subAdminArea ?: addr.adminArea
+                            raw?.replace(Regex("(?i)\\b(county|district|province|municipality|city|town)\\b"), "")
+                               ?.replace(Regex("[0-9]+"), "")
+                               ?.trim()
+                               ?.takeIf { it.isNotEmpty() }
+                               ?: addr.locality
+                        }
+                    } catch (_: Exception) { null }
 
                     if (daily != null) {
                         val daysList = daily.dates.mapIndexed { index, date ->
                             com.openlauncher.app.model.DailyForecast(
                                 date = date,
                                 maxTemperatureCelsius = daily.maxTemperatures.getOrNull(index) ?: 0.0,
-                                                                     minTemperatureCelsius = daily.minTemperatures.getOrNull(index) ?: 0.0,
-                                                                     weatherCode = daily.weatherCodes.getOrNull(index) ?: 0
+                                minTemperatureCelsius = daily.minTemperatures.getOrNull(index) ?: 0.0,
+                                weatherCode = daily.weatherCodes.getOrNull(index) ?: 0
                             )
                         }
 
+                        val today = daysList.firstOrNull()
+
                         val nuevoEstado = WeatherState(
                             currentTemperature = current?.temperature,
+                            windSpeed = current?.windspeed,
+                            windDirection = current?.winddirection,
+                            weatherCode = current?.weathercode,
+                            maxTemperatureToday = today?.maxTemperatureCelsius,
+                            minTemperatureToday = today?.minTemperatureCelsius,
+                            locationName = locationName,
                             forecastDays = daysList,
-                                isLoading = false,
-                                error = null
+                            isLoading = false,
+                            error = null
                         )
 
-                        // Almacenamos en caché el JSON de los 7 días de forma asíncrona
                         withContext(Dispatchers.IO) {
                             val json = gson.toJson(nuevoEstado)
                             sharedPrefs.edit().putString("cached_state", json).apply()
@@ -644,20 +667,22 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
                         _weather.value = nuevoEstado
                         _weatherError.value = null
-                    } // CORREGIDO: Se eliminó el caracter '/' sobrante que causaba el error de sintaxis
+                    }
                 } catch (e: Exception) {
-                    // MODALIDAD OFFLINE: Si falla internet, cargamos del caché
                     val jsonGuardado = sharedPrefs.getString("cached_state", null)
                     if (!jsonGuardado.isNullOrEmpty()) {
-                        // CORREGIDO: Casteo explícito seguro para evitar la confusión de GSON con Map.Entry
                         val estadoRecuperado = gson.fromJson(jsonGuardado, WeatherState::class.java) as WeatherState
-
-                        // CORREGIDO: Reconstruimos el estado clonando únicamente los días para evitar invocar 'currentTemperature'
                         _weather.value = WeatherState(
                             currentTemperature = estadoRecuperado.currentTemperature,
+                            windSpeed = estadoRecuperado.windSpeed,
+                            windDirection = estadoRecuperado.windDirection,
+                            weatherCode = estadoRecuperado.weatherCode,
+                            maxTemperatureToday = estadoRecuperado.maxTemperatureToday,
+                            minTemperatureToday = estadoRecuperado.minTemperatureToday,
+                            locationName = estadoRecuperado.locationName,
                             forecastDays = estadoRecuperado.forecastDays,
-                                isLoading = false,
-                                error = null
+                            isLoading = false,
+                            error = null
                         )
                         _weatherError.value = null
                     } else {
@@ -674,6 +699,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     val compassBearing: StateFlow<Float> = locationMgr.bearing
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0f)
+
+    val satelliteCount: StateFlow<Int> = locationMgr.satellites
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 0)
 
     // Re-evaluated every minute: a parked car produces no location updates
     // (minDistance filters), so AUTO mode must also flip on time alone.

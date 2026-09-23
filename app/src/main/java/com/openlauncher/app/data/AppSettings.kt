@@ -109,7 +109,10 @@ data class AppSettings(
     val mapType: MapType = MapType.ROADMAP,
     val showTraffic: Boolean = false,
     val autostartPackages: List<String> = emptyList(),
-    val autostartDelay: Int = 2
+    val autostartDelay: Int = 2,
+    val sidebarWidthDp: Int = 70,
+    val bottomBarHeightDp: Int = 70,
+    val playMediaOnBoot: Boolean = false
 )
 
 fun defaultShortcuts() = listOf(

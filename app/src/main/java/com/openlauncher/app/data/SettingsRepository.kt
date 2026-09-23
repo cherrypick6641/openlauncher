@@ -71,6 +71,9 @@ class SettingsRepository(private val context: Context) {
         val SHOW_TRAFFIC  = booleanPreferencesKey("show_traffic")
         val AUTOSTART_PACKAGES_JSON = stringPreferencesKey("autostart_packages_json")
         val AUTOSTART_DELAY = intPreferencesKey("autostart_delay")
+        val SIDEBAR_WIDTH_DP     = intPreferencesKey("sidebar_width_dp")
+        val BOTTOM_BAR_HEIGHT_DP = intPreferencesKey("bottom_bar_height_dp")
+        val PLAY_MEDIA_ON_BOOT   = booleanPreferencesKey("play_media_on_boot")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -97,7 +100,6 @@ class SettingsRepository(private val context: Context) {
                         object : TypeToken<List<WidgetConfig>>() {}.type
                     )
                 }.getOrNull() ?: defaults.widgetLayout
-                // Migrate: old 2×2 layout has no widget with gridX≥2 — replace with new 3×2 default
                 if (loaded.none { it.gridX >= 2 }) defaults.widgetLayout else loaded
             } else defaults.widgetLayout
 
@@ -155,7 +157,10 @@ class SettingsRepository(private val context: Context) {
                         gson.fromJson<List<String>>(it, object : TypeToken<List<String>>() {}.type)
                     }.getOrNull()
                 } ?: listOfNotNull(prefs[stringPreferencesKey("autostart_package")]),
-                autostartDelay = prefs[Keys.AUTOSTART_DELAY] ?: defaults.autostartDelay
+                autostartDelay = prefs[Keys.AUTOSTART_DELAY] ?: defaults.autostartDelay,
+                sidebarWidthDp    = prefs[Keys.SIDEBAR_WIDTH_DP]    ?: defaults.sidebarWidthDp,
+                bottomBarHeightDp = prefs[Keys.BOTTOM_BAR_HEIGHT_DP] ?: defaults.bottomBarHeightDp,
+                playMediaOnBoot   = prefs[Keys.PLAY_MEDIA_ON_BOOT]   ?: defaults.playMediaOnBoot
             )
     }
 
@@ -217,6 +222,9 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SHOW_TRAFFIC]  = s.showTraffic
             prefs[Keys.AUTOSTART_PACKAGES_JSON] = gson.toJson(s.autostartPackages)
             prefs[Keys.AUTOSTART_DELAY] = s.autostartDelay
+            prefs[Keys.SIDEBAR_WIDTH_DP]     = s.sidebarWidthDp
+            prefs[Keys.BOTTOM_BAR_HEIGHT_DP] = s.bottomBarHeightDp
+            prefs[Keys.PLAY_MEDIA_ON_BOOT]   = s.playMediaOnBoot
     }
 
     suspend fun resetToDefaults() {

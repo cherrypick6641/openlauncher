@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -35,10 +34,8 @@ import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DirectionsCar
-import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Equalizer
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Headset
@@ -56,6 +53,7 @@ import androidx.compose.material.icons.filled.NetworkWifi3Bar
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Radio
+import androidx.compose.material.icons.filled.SatelliteAlt
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SignalCellular0Bar
 import androidx.compose.material.icons.filled.SignalCellular4Bar
@@ -75,11 +73,9 @@ import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -97,6 +93,8 @@ import androidx.compose.ui.graphics.painter.BitmapPainter
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -107,13 +105,11 @@ import com.openlauncher.app.data.DefaultShortcutIcon
 import com.openlauncher.app.data.ShortcutConfig
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.ui.theme.LocalDayMode
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private val ICON_SIZE   = 36.dp
-private val SHORTCUT_ICON_SIZE = 44.dp
-private val SHORTCUT_SLOT_SIZE = 52.dp
-private val NAV_SLOT_SIZE = 42.dp
-private val SIDEBAR_W   = 60.dp
+private val SHORTCUT_ICON_SIZE = 38.dp
+private val SHORTCUT_SLOT_SIZE = 48.dp
 
 @Composable
 fun Sidebar(
@@ -128,21 +124,20 @@ fun Sidebar(
     onReorder: (from: Int, to: Int) -> Unit,
     wifiLevel: Int = -1,
     mobileLevel: Int = -1,
-    editMode: Boolean = false,
-    onToggleEditMode: () -> Unit = {},
-    onOpenWidgetLibrary: () -> Unit = {},
+    satelliteCount: Int = 0,
     isHorizontal: Boolean = false,
+    onMicClick: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isDayMode    = LocalDayMode.current
     val accent       = Color(settings.accentColor)
-    val sidebarBg    = if (isDayMode) Color(0xFFE0E0E0) else Color.Black.copy(alpha = 0.0f)
-    val iconInactive = if (isDayMode) Color(0xFF777777) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.3f)
-    val dividerColor = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.0f)
+    val sidebarBg    = if (isDayMode) Color(0xFFE0E0E0) else Color(0xFF0D0D0D)
+    val dividerColor = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF222222)
     val density      = LocalDensity.current
     val slotSizePx   = with(density) { SHORTCUT_SLOT_SIZE.toPx() }
-    val almostWhite  = Color(0xFFF0F0F0)
-    val statusIconColor = if (isDayMode) Color(0xFF444444) else almostWhite
+    val statusIconColor = if (isDayMode) Color(0xFF444444) else Color(0xFFCCCCCC)
+
+    val sidebarWidth = settings.sidebarWidthDp.dp
 
     var actionSheetSlot by remember { mutableStateOf<Int?>(null) }
     var iconPickerSlot  by remember { mutableStateOf<Int?>(null) }
@@ -166,24 +161,12 @@ fun Sidebar(
     }
 
     val statusIcons: @Composable () -> Unit = {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            modifier = if (isHorizontal) Modifier.padding(horizontal = 8.dp) else Modifier.padding(vertical = 4.dp)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = if (isHorizontal) Modifier.padding(horizontal = 8.dp) else Modifier.padding(vertical = 8.dp)
         ) {
-            // Mobile Signal Icon
-            if (mobileLevel >= 0) {
-                val mobileIcon = when (mobileLevel) {
-                    1 -> Icons.Filled.SignalCellularAlt1Bar
-                    2 -> Icons.Filled.SignalCellularAlt2Bar
-                    3 -> Icons.Filled.SignalCellularAlt
-                    4 -> Icons.Filled.SignalCellular4Bar
-                    else -> Icons.Filled.SignalCellular0Bar
-                }
-                Icon(mobileIcon, null, tint = statusIconColor, modifier = Modifier.size(20.dp))
-            }
-
-            // Wifi Signal Icon (only if connected)
+            // 1st Row: Wi-Fi Strength Icon (ONLY if connected)
             if (wifiLevel >= 0) {
                 val wifiIcon = when (wifiLevel) {
                     1 -> Icons.Filled.NetworkWifi1Bar
@@ -192,31 +175,42 @@ fun Sidebar(
                     4 -> Icons.Filled.Wifi
                     else -> Icons.Filled.SignalWifi0Bar
                 }
-                Icon(wifiIcon, null, tint = statusIconColor, modifier = Modifier.size(20.dp))
+                Icon(wifiIcon, contentDescription = "Wi-Fi", tint = statusIconColor, modifier = Modifier.size(28.dp))
             }
-        }
-    }
 
-    val clockContent: @Composable () -> Unit = {
-        ClockContent(isDayMode = isDayMode)
-    }
-
-    val editButtons: @Composable () -> Unit = {
-        val content = @Composable {
-            if (editMode) {
-                IconButton(onClick = onOpenWidgetLibrary, modifier = Modifier.size(NAV_SLOT_SIZE)) {
-                    Icon(Icons.Default.Dashboard, null, tint = statusIconColor, modifier = Modifier.size(20.dp))
+            // 2nd Row: Mobile Strength Icon
+            if (mobileLevel >= 0) {
+                val mobileIcon = when (mobileLevel) {
+                    1 -> Icons.Filled.SignalCellularAlt1Bar
+                    2 -> Icons.Filled.SignalCellularAlt2Bar
+                    3 -> Icons.Filled.SignalCellularAlt
+                    4 -> Icons.Filled.SignalCellular4Bar
+                    else -> Icons.Filled.SignalCellular0Bar
                 }
+                Icon(mobileIcon, contentDescription = "Mobile Signal", tint = statusIconColor, modifier = Modifier.size(28.dp))
             }
-            IconButton(onClick = onToggleEditMode, modifier = Modifier.size(NAV_SLOT_SIZE)) {
-                Icon(Icons.Default.Edit, null, tint = if (editMode) accent else statusIconColor, modifier = Modifier.size(20.dp))
-            }
-        }
 
-        if (isHorizontal) {
-            Row(verticalAlignment = Alignment.CenterVertically) { content() }
-        } else {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) { content() }
+            // 3rd Row: Bluetooth Icon
+            Icon(Icons.Default.Bluetooth, contentDescription = "Bluetooth", tint = statusIconColor, modifier = Modifier.size(28.dp))
+
+            // 4th Row: Satellite Icon & Number of Satellites Connected
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.SatelliteAlt,
+                    contentDescription = "Satellites",
+                    tint = statusIconColor,
+                    modifier = Modifier.size(28.dp)
+                )
+                Text(
+                    text = "$satelliteCount",
+                    color = statusIconColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 
@@ -258,39 +252,30 @@ fun Sidebar(
         }
     }
 
-    val navButtons: @Composable () -> Unit = {
-        NavButton(
-            icon         = Icons.Default.Settings,
-            label        = "Settings",
-            isActive     = currentDest == NavDestination.SETTINGS,
-            accent       = accent,
-            iconInactive = if (isDayMode) iconInactive else almostWhite,
-            isHorizontal = isHorizontal,
-            onClick      = { 
-                if (currentDest == NavDestination.SETTINGS) onNavigate(NavDestination.HOME) 
-                else onNavigate(NavDestination.SETTINGS) 
-            }
-        )
-        NavButton(
-            icon         = Icons.Default.Apps,
-            label        = "Apps",
-            isActive     = currentDest == NavDestination.APP_LIBRARY,
-            accent       = accent,
-            iconInactive = if (isDayMode) iconInactive else almostWhite,
-            customBg     = accent,
-            isHorizontal = isHorizontal,
-            onClick      = { 
-                if (currentDest == NavDestination.APP_LIBRARY) onNavigate(NavDestination.HOME) 
-                else onNavigate(NavDestination.APP_LIBRARY) 
-            }
-        )
+    val appDrawerButton: @Composable () -> Unit = {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .padding(vertical = 10.dp)
+                .size(SHORTCUT_SLOT_SIZE)
+                .clip(RoundedCornerShape(12.dp))
+                .background(accent)
+                .clickable { onNavigate(NavDestination.APP_LIBRARY) }
+        ) {
+            Icon(
+                imageVector = Icons.Default.Apps,
+                contentDescription = "App Drawer",
+                tint = Color.White,
+                modifier = Modifier.size(26.dp)
+            )
+        }
     }
 
     if (isHorizontal) {
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(SIDEBAR_W)
+                .height(sidebarWidth)
                 .background(sidebarBg)
         ) {
             Row(
@@ -298,37 +283,7 @@ fun Sidebar(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                // Controls pinned to the LEFT
-                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 2.dp)) {
-                    NavButton(
-                        icon         = Icons.Default.Settings,
-                        label        = "Settings",
-                        isActive     = currentDest == NavDestination.SETTINGS,
-                        accent       = accent,
-                        iconInactive = if (isDayMode) iconInactive else almostWhite,
-                        isHorizontal = true,
-                        onClick      = { 
-                            if (currentDest == NavDestination.SETTINGS) onNavigate(NavDestination.HOME) 
-                            else onNavigate(NavDestination.SETTINGS) 
-                        }
-                    )
-                    NavButton(
-                        icon         = Icons.Default.Apps,
-                        label        = "Apps",
-                        isActive     = currentDest == NavDestination.APP_LIBRARY,
-                        accent       = accent,
-                        iconInactive = if (isDayMode) iconInactive else almostWhite,
-                        customBg     = accent,
-                        isHorizontal = true,
-                        onClick      = { 
-                            if (currentDest == NavDestination.APP_LIBRARY) onNavigate(NavDestination.HOME) 
-                            else onNavigate(NavDestination.APP_LIBRARY) 
-                        }
-                    )
-                    editButtons()
-                }
-
-                // Shortcuts centered in the middle
+                statusIcons()
                 Row(
                     modifier = Modifier
                         .weight(1f)
@@ -339,45 +294,34 @@ fun Sidebar(
                 ) {
                     shortcutsContent()
                 }
-
-                // Clock and status icons pinned to the RIGHT
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.padding(end = 12.dp)
-                ) {
-                    statusIcons()
-                    Spacer(Modifier.width(16.dp))
-                    clockContent()
-                }
+                appDrawerButton()
             }
         }
     } else {
         Column(
             modifier = modifier
-                .width(SIDEBAR_W)
+                .width(sidebarWidth)
                 .fillMaxHeight()
                 .background(sidebarBg),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            clockContent()
             statusIcons()
-            HorizontalDivider(color = dividerColor, modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+            HorizontalDivider(color = dividerColor, modifier = Modifier.padding(horizontal = 10.dp))
 
             Column(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
-                    .padding(top = 2.dp, bottom = 2.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(vertical = 4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 shortcutsContent()
             }
 
-            HorizontalDivider(color = dividerColor)
-            editButtons()
-            navButtons()
-            Spacer(Modifier.height(4.dp))
+            HorizontalDivider(color = dividerColor, modifier = Modifier.padding(horizontal = 10.dp))
+            appDrawerButton()
         }
     }
 
@@ -425,7 +369,7 @@ private fun ShortcutSlot(
     isDragging: Boolean,
     dragTranslation: Float,
     isHorizontal: Boolean,
-    size: androidx.compose.ui.unit.Dp,
+    size: Dp,
     onClick: () -> Unit,
     onLongPress: () -> Unit,
     onDragStart: () -> Unit,
@@ -470,7 +414,7 @@ private fun ShortcutSlot(
                         change.consume()
                         val delta = if (isHorizontal) dragAmount.x else dragAmount.y
                         totalDrag += delta
-                        if (!hasSignificantDrag && kotlin.math.abs(totalDrag) > viewConfiguration.touchSlop) {
+                        if (!hasSignificantDrag && abs(totalDrag) > viewConfiguration.touchSlop) {
                             hasSignificantDrag = true
                             currentOnDragStart()
                         }
@@ -492,7 +436,7 @@ private fun ShortcutSlot(
                 )
             }
     ) {
-        val iconInactive = if (LocalDayMode.current) Color(0xFF777777) else Color(0xFF3A3A3A)
+        val iconInactive = if (LocalDayMode.current) Color(0xFF555555) else Color(0xFFCCCCCC)
         val override = shortcut.customIconOverride
         when {
             override != null && override != DefaultShortcutIcon.NONE -> {
@@ -504,8 +448,6 @@ private fun ShortcutSlot(
                 )
             }
             resolvedIcon != null -> {
-                // Cache per icon — every slot recomposes each drag frame, and an
-                // un-remembered toBitmap allocated a fresh bitmap per slot per frame
                 val bmp = remember(resolvedIcon) { resolvedIcon.toBitmap(80, 80) }
                 Icon(
                     painter            = BitmapPainter(bmp.asImageBitmap()),
@@ -526,7 +468,7 @@ private fun ShortcutSlot(
                 Icon(
                     imageVector        = Icons.Default.Add,
                     contentDescription = "Add shortcut",
-                    tint               = if (LocalDayMode.current) Color(0xFFBBBBBB) else Color(0xFF252525),
+                    tint               = if (LocalDayMode.current) Color(0xFFBBBBBB) else Color(0xFF444444),
                     modifier           = Modifier.size(SHORTCUT_ICON_SIZE)
                 )
             }
@@ -649,90 +591,6 @@ private fun IconPickerDialog(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun NavButton(
-    icon: ImageVector,
-    label: String,
-    isActive: Boolean,
-    accent: Color,
-    iconInactive: Color,
-    customBg: Color? = null,
-    isHorizontal: Boolean = false,
-    onClick: () -> Unit
-) {
-    val isDayMode = LocalDayMode.current
-    val activeIconColor = if (isDayMode) Color(0xFF111111) else Color.White
-    val activeBg = if (isDayMode) Color(0xFF000000).copy(alpha = 0.08f) else Color.White.copy(alpha = 0.06f)
-    val finalBg = when {
-        isActive -> activeBg
-        customBg != null -> customBg
-        else -> Color.Transparent
-    }
-    Box(
-        contentAlignment = Alignment.Center,
-        modifier = Modifier
-            .then(
-                if (isHorizontal) Modifier.fillMaxHeight().width(NAV_SLOT_SIZE)
-                else              Modifier.fillMaxWidth().height(NAV_SLOT_SIZE)
-            )
-            .padding(2.dp)
-            .clip(MaterialTheme.shapes.medium)
-            .background(finalBg)
-            .clickable(onClick = onClick)
-    ) {
-        Icon(
-            imageVector        = icon,
-            contentDescription = label,
-            tint               = if (isActive) activeIconColor else iconInactive,
-            modifier           = Modifier.size(ICON_SIZE)
-        )
-    }
-}
-
-@Composable
-private fun ClockContent(isDayMode: Boolean) {
-    val timeFormatter = remember { java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()) }
-    val dateFormatter = remember { java.text.SimpleDateFormat("EEE", java.util.Locale.getDefault()) }
-    val dayFormatter  = remember { java.text.SimpleDateFormat("dd/MM", java.util.Locale.getDefault()) }
-
-    var timeText by remember { mutableStateOf(timeFormatter.format(java.util.Date())) }
-    var dateText by remember { mutableStateOf(dateFormatter.format(java.util.Date())) }
-    var dayText  by remember { mutableStateOf(dayFormatter.format(java.util.Date())) }
-
-    LaunchedEffect(Unit) {
-        while (true) {
-            val now = java.util.Date()
-            timeText = timeFormatter.format(now)
-            dateText = dateFormatter.format(now)
-            dayText  = dayFormatter.format(now)
-            kotlinx.coroutines.delay(1000)
-        }
-    }
-
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.padding(vertical = 8.dp)
-    ) {
-        Text(
-            text = timeText,
-            color = if (isDayMode) Color.Black else Color.White,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
-            fontSize = 18.sp
-        )
-        Text(
-            text = dateText.uppercase(),
-            color = if (isDayMode) Color(0xFF666666) else Color(0xFFF0F0F0),
-            fontSize = 14.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium
-        )
-        Text(
-            text = dayText,
-            color = if (isDayMode) Color(0xFF666666) else Color(0xFFF0F0F0),
-            fontSize = 14.sp
-        )
     }
 }
 

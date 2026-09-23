@@ -1,8 +1,16 @@
 package com.openlauncher.app.ui.screen
 
+import android.Manifest
+import android.app.role.RoleManager
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -11,7 +19,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -27,25 +34,20 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.Brightness4
-import androidx.compose.material.icons.filled.BrightnessLow
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Description
-import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.FormatAlignRight
 import androidx.compose.material.icons.filled.FormatBold
-import androidx.compose.material.icons.filled.FormatColorFill
 import androidx.compose.material.icons.filled.FormatSize
-import androidx.compose.material.icons.filled.Gradient
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Navigation
 import androidx.compose.material.icons.filled.NightlightRound
@@ -54,12 +56,9 @@ import androidx.compose.material.icons.filled.NotificationsOff
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.RestartAlt
-import androidx.compose.material.icons.filled.Straighten
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TextFields
 import androidx.compose.material.icons.filled.Timer
-import androidx.compose.material.icons.filled.TrendingFlat
-import androidx.compose.material.icons.filled.Wallpaper
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -67,10 +66,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderColors
 import androidx.compose.material3.SliderDefaults
@@ -79,7 +75,6 @@ import androidx.compose.material3.SwitchColors
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TextFieldColors
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
@@ -94,23 +89,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.openlauncher.app.BuildConfig
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
-import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.data.ShortcutConfig
-import com.openlauncher.app.data.SidebarPosition
-import com.openlauncher.app.data.UnitSystem
+import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.ui.components.ColorPickerDialog
 import com.openlauncher.app.ui.components.ConfirmDialog
 import com.openlauncher.app.ui.theme.LocalDayMode
+import com.openlauncher.app.util.FileLogger
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-
-// Resolved at call site via LocalDayMode — see SettingsDivider / SettingsSection
 
 @Composable
 fun SettingsScreen(
@@ -123,26 +120,9 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
-    var showResetDialog       by remember { mutableStateOf(false) }
-    var showAccentPicker      by remember { mutableStateOf(false) }
-    var showBgPicker          by remember { mutableStateOf(false) }
-    var showGradientEndPicker by remember { mutableStateOf(false) }
-    var showFontColorPicker   by remember { mutableStateOf(false) }
-
-    // OpenDocument (not GetContent): only SAF document URIs carry a persistable
-    // grant, so this is what actually keeps the wallpaper readable after reboot
-    val wallpaperPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri: Uri? ->
-        uri?.let {
-            runCatching {
-                context.contentResolver.takePersistableUriPermission(
-                    it, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
-            }
-            onUpdate { copy(wallpaperUri = it.toString()) }
-        }
-    }
+    var showResetDialog     by remember { mutableStateOf(false) }
+    var showAccentPicker    by remember { mutableStateOf(false) }
+    var showFontColorPicker by remember { mutableStateOf(false) }
 
     val isDayMode = LocalDayMode.current
     val screenBg  = MaterialTheme.colorScheme.background
@@ -172,34 +152,27 @@ fun SettingsScreen(
 
         // ── Permissions ──────────────────────────────────────────────────────
         SettingsSection("Permissions") {
-            val isMediaConnected by com.openlauncher.app.service.MediaListenerService.isConnected.collectAsState()
+            val isMediaConnected by MediaListenerService.isConnected.collectAsState()
 
-            // Bumped on ON_RESUME so statuses refresh when the user returns from
-            // system settings (recomposition alone doesn't re-run these checks)
             var permissionRefresh by remember { mutableIntStateOf(0) }
-            val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
+            val lifecycleOwner = LocalLifecycleOwner.current
             DisposableEffect(lifecycleOwner) {
-                val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
-                    if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) permissionRefresh++
+                val observer = LifecycleEventObserver { _, event ->
+                    if (event == Lifecycle.Event.ON_RESUME) permissionRefresh++
                 }
                 lifecycleOwner.lifecycle.addObserver(observer)
                 onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
             }
 
-            // canDrawOverlays requires API 23 — on Android 5.x the permission
-            // model doesn't exist, so treat it as granted
-            val canDrawOverlays = remember(permissionRefresh) {
-                android.os.Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(context)
-            }
             val hasLocation = remember(permissionRefresh) {
-                androidx.core.content.ContextCompat.checkSelfPermission(
-                    context, android.Manifest.permission.ACCESS_FINE_LOCATION
-                ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+                ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.ACCESS_FINE_LOCATION
+                ) == PackageManager.PERMISSION_GRANTED
             }
             val isDefaultLauncher = remember(permissionRefresh) {
                 val home = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME)
                 context.packageManager.resolveActivity(
-                    home, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY
+                    home, PackageManager.MATCH_DEFAULT_ONLY
                 )?.activityInfo?.packageName == context.packageName
             }
 
@@ -218,17 +191,14 @@ fun SettingsScreen(
                 icon     = Icons.Default.Home,
                 accent   = if (isDefaultLauncher) accent else Color(0xFF993333),
                 onClick  = {
-                    // Preferred: the system home-role dialog (API 29+). Vendor ROMs
-                    // sometimes ship without it, so fall through to the home-settings
-                    // screen, then the default-apps screen.
                     var launched = false
-                    if (android.os.Build.VERSION.SDK_INT >= 29) {
-                        val rm = context.getSystemService(android.app.role.RoleManager::class.java)
-                        if (rm != null && rm.isRoleAvailable(android.app.role.RoleManager.ROLE_HOME) &&
-                            !rm.isRoleHeld(android.app.role.RoleManager.ROLE_HOME)
+                    if (Build.VERSION.SDK_INT >= 29) {
+                        val rm = context.getSystemService(RoleManager::class.java)
+                        if (rm != null && rm.isRoleAvailable(RoleManager.ROLE_HOME) &&
+                            !rm.isRoleHeld(RoleManager.ROLE_HOME)
                         ) {
                             launched = runCatching {
-                                homeRoleLauncher.launch(rm.createRequestRoleIntent(android.app.role.RoleManager.ROLE_HOME))
+                                homeRoleLauncher.launch(rm.createRequestRoleIntent(RoleManager.ROLE_HOME))
                             }.isSuccess
                         }
                     }
@@ -252,7 +222,7 @@ fun SettingsScreen(
             SettingsDivider()
             SettingsButton(
                 label    = "Notification Access",
-                sublabel = if (isMediaConnected) "Granted — media controls active" else "Required for Now Playing widget",
+                sublabel = if (isMediaConnected) "Granted — media controls active" else "Required for Now Playing controls",
                 icon     = if (isMediaConnected) Icons.Default.NotificationsActive else Icons.Default.NotificationsOff,
                 accent   = if (isMediaConnected) accent else Color(0xFF993333),
                 onClick  = {
@@ -262,38 +232,17 @@ fun SettingsScreen(
                     )
                 }
             )
-            /*SettingsDivider()
-            SettingsButton(
-                label    = "Draw Over Other Apps",
-                sublabel = if (canDrawOverlays) "Granted — PIP overlay enabled" else "Required for PIP floating window",
-                icon     = if (canDrawOverlays) Icons.Default.Layers else Icons.Default.LayersClear,
-                accent   = if (canDrawOverlays) accent else Color(0xFF993333),
-                onClick  = {
-                    if (android.os.Build.VERSION.SDK_INT >= 23) {
-                        runCatching {
-                            context.startActivity(
-                                Intent(
-                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                                    Uri.parse("package:${context.packageName}")
-                                ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                            )
-                        }
-                    }
-                }
-            )*/
             SettingsDivider()
             SettingsButton(
                 label    = "Location Access",
-                sublabel = if (hasLocation) "Granted — GPS, compass & weather active" else "Required for compass, speed & weather",
+                sublabel = if (hasLocation) "Granted — GPS & weather active" else "Required for weather and GPS",
                 icon     = if (hasLocation) Icons.Default.LocationOn else Icons.Default.LocationOff,
                 accent   = if (hasLocation) accent else Color(0xFF993333),
                 onClick  = {
                     if (!hasLocation) {
-                        // Ask in-app first — previously the only grant path was the
-                        // onboarding flow; skipping it left GPS features dead forever
                         locationPermissionLauncher.launch(arrayOf(
-                            android.Manifest.permission.ACCESS_FINE_LOCATION,
-                            android.Manifest.permission.ACCESS_COARSE_LOCATION
+                            Manifest.permission.ACCESS_FINE_LOCATION,
+                            Manifest.permission.ACCESS_COARSE_LOCATION
                         ))
                     } else {
                         runCatching {
@@ -307,110 +256,6 @@ fun SettingsScreen(
                     }
                 }
             )
-        }
-
-        // ── Vehicle Name ─────────────────────────────────────────────────────
-        SettingsSection("Vehicle") {
-            var nameInput by remember(settings.vehicleName) { mutableStateOf(settings.vehicleName) }
-            SettingsRow(
-                label    = "Vehicle Name",
-                sublabel = "",
-                icon     = Icons.Default.DirectionsCar
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedTextField(
-                        value         = nameInput,
-                        onValueChange = { nameInput = it },
-                        placeholder   = { Text("MY CAR", color = if (isDayMode) Color(0xFF999999) else Color(0xFF444444), fontSize = 12.sp) },
-                        singleLine    = true,
-                        textStyle     = LocalTextStyle.current.copy(fontSize = 12.sp, color = if (isDayMode) Color(0xFF111111) else Color.White),
-                        colors        = outlinedFieldColors(accent),
-                        modifier      = Modifier.width(140.dp)
-                    )
-                    if (nameInput != settings.vehicleName) {
-                        IconButton(onClick = { onUpdate { copy(vehicleName = nameInput) } }, modifier = Modifier.size(32.dp)) {
-                            Icon(Icons.Default.Check, "Save", tint = accent, modifier = Modifier.size(16.dp))
-                        }
-                    }
-                }
-            }
-
-            SettingsDivider()
-
-            SettingsRow(
-                label    = "Sidebar Position",
-                sublabel = when (settings.sidebarPosition) {
-                    SidebarPosition.LEFT   -> "Left side"
-                    SidebarPosition.RIGHT  -> "Right side"
-                    SidebarPosition.BOTTOM -> "Bottom"
-                },
-                icon     = Icons.Default.SwapHoriz
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    SidebarPosition.entries.forEach { pos ->
-                        FilterChip(
-                            selected = settings.sidebarPosition == pos,
-                            onClick  = { onUpdate { copy(sidebarPosition = pos) } },
-                            label    = {
-                                Text(
-                                    when (pos) {
-                                        SidebarPosition.LEFT   -> "Left"
-                                        SidebarPosition.RIGHT  -> "Right"
-                                        SidebarPosition.BOTTOM -> "Bottom"
-                                    },
-                                    fontSize = 9.sp,
-                                    letterSpacing = 0.5.sp
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = accent,
-                                selectedLabelColor     = Color.Black
-                            )
-                        )
-                    }
-                }
-            }
-
-            if (settings.sidebarPosition == SidebarPosition.BOTTOM) {
-                SettingsDivider()
-                SettingsRow(
-                    label    = "Shortcuts Side",
-                    sublabel = if (settings.bottomBarShortcutsRight) "Right — nav buttons on left" else "Left — nav buttons on right",
-                    icon     = Icons.Default.FormatAlignRight
-                ) {
-                    Switch(
-                        checked         = settings.bottomBarShortcutsRight,
-                        onCheckedChange = { onUpdate { copy(bottomBarShortcutsRight = it) } },
-                        colors          = switchColors(accent)
-                    )
-                }
-            }
-
-            SettingsDivider()
-
-            SettingsRow(label = "Unit System", sublabel = if (settings.unitSystem == UnitSystem.METRIC) "Metric (°C, km)" else "Imperial (°F, mi)", icon = Icons.Default.Straighten) {
-                Row {
-                    FilterChip(
-                        selected = settings.unitSystem == UnitSystem.METRIC,
-                        onClick  = { onUpdate { copy(unitSystem = UnitSystem.METRIC) } },
-                        label    = { Text("Metric", fontSize = 11.sp) },
-                        colors   = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = accent,
-                            selectedLabelColor     = Color.Black
-                        )
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    FilterChip(
-                        selected = settings.unitSystem == UnitSystem.IMPERIAL,
-                        onClick  = { onUpdate { copy(unitSystem = UnitSystem.IMPERIAL) } },
-                        label    = { Text("Imperial", fontSize = 11.sp) },
-                        colors   = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = accent,
-                            selectedLabelColor     = Color.Black
-                        )
-                    )
-                }
-            }
         }
 
         // ── Startup ──────────────────────────────────────────────────────────
@@ -428,6 +273,21 @@ fun SettingsScreen(
                     steps         = 17,
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+            }
+
+            SettingsDivider()
+
+            SettingsRow(
+                label    = "Play Media on Boot",
+                sublabel = if (settings.playMediaOnBoot) "Enabled — plays last media when launcher starts" else "Disabled",
+                icon     = Icons.Default.MusicNote,
+                onClick  = { onUpdate { copy(playMediaOnBoot = !playMediaOnBoot) } }
+            ) {
+                Switch(
+                    checked         = settings.playMediaOnBoot,
+                    onCheckedChange = { onUpdate { copy(playMediaOnBoot = it) } },
+                    colors          = switchColors(accent)
                 )
             }
 
@@ -455,8 +315,43 @@ fun SettingsScreen(
             }
         }
 
+        // ── Layout Dimensions ──────────────────────────────────────────────────
+        SettingsSection("Layout Dimensions") {
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                SettingsRow(
+                    label    = "Sidebar Width",
+                    sublabel = "${settings.sidebarWidthDp} dp",
+                    icon     = Icons.Default.SwapHoriz
+                ) {}
+                Slider(
+                    value         = settings.sidebarWidthDp.toFloat(),
+                    onValueChange = { onUpdate { copy(sidebarWidthDp = it.toInt()) } },
+                    valueRange    = 50f..120f,
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+            }
+
+            SettingsDivider()
+
+            Column(modifier = Modifier.padding(bottom = 8.dp)) {
+                SettingsRow(
+                    label    = "Bottom Bar Height",
+                    sublabel = "${settings.bottomBarHeightDp} dp",
+                    icon     = Icons.Default.FormatAlignRight
+                ) {}
+                Slider(
+                    value         = settings.bottomBarHeightDp.toFloat(),
+                    onValueChange = { onUpdate { copy(bottomBarHeightDp = it.toInt()) } },
+                    valueRange    = 50f..120f,
+                    colors        = sliderColors(accent),
+                    modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                )
+            }
+        }
+
         // ── Sidebar Shortcuts ─────────────────────────────────────────────────
-        SettingsSection("Sidebar") {
+        SettingsSection("Sidebar Shortcuts") {
             settings.shortcuts.forEachIndexed { index, shortcut ->
                 if (index > 0) SettingsDivider()
                 SettingsRow(
@@ -557,60 +452,6 @@ fun SettingsScreen(
 
             SettingsDivider()
 
-            // Background color + gradient
-            SettingsRow(
-                label    = "Background",
-                sublabel = if (settings.useGradient) "Gradient" else "Solid color",
-                icon     = Icons.Default.FormatColorFill
-            ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment     = Alignment.CenterVertically
-                ) {
-                    // Start color swatch
-                    Box(
-                        modifier = Modifier
-                            .size(28.dp)
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(settings.backgroundColor))
-                            .clickable { showBgPicker = true }
-                    )
-                    if (settings.useGradient) {
-                        Icon(
-                            Icons.Default.ArrowForward, null,
-                            tint = if (isDayMode) Color(0xFF999999) else Color(0xFF555555), modifier = Modifier.size(14.dp)
-                        )
-                        // End color swatch
-                        Box(
-                            modifier = Modifier
-                                .size(28.dp)
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(Color(settings.gradientEndColor))
-                                .clickable { showGradientEndPicker = true }
-                        )
-                    }
-                    if (settings.useCustomBackgroundColor) {
-                        TextButton(
-                            onClick = {
-                                onUpdate {
-                                    copy(
-                                        useCustomBackgroundColor = false,
-                                        backgroundColor = Color.Black.toArgb(),
-                                        useGradient = false
-                                    )
-                                }
-                            },
-                            contentPadding = PaddingValues(horizontal = 6.dp),
-                            modifier = Modifier.height(28.dp)
-                        ) {
-                            Text("DEFAULT", color = accent, fontSize = 9.sp, letterSpacing = 1.sp)
-                        }
-                    }
-                }
-            }
-
-            SettingsDivider()
-
             // Font Color row
             SettingsRow(
                 label    = "Font Color",
@@ -624,88 +465,6 @@ fun SettingsScreen(
                         .background(Color(settings.fontColor))
                         .clickable { showFontColorPicker = true }
                 )
-            }
-
-            SettingsDivider()
-
-            SettingsRow(label = "Use Gradient", sublabel = "Blend two colors as background", icon = Icons.Default.Gradient) {
-                Switch(checked = settings.useGradient,
-                    onCheckedChange = { onUpdate { copy(useGradient = it) } },
-                    colors = switchColors(accent))
-            }
-
-            if (settings.useGradient) {
-                SettingsDivider()
-                SettingsRow(
-                    label    = "Gradient Direction",
-                    sublabel = when (settings.gradientDirection) {
-                        GradientDirection.TOP_TO_BOTTOM -> "Top to Bottom"
-                        GradientDirection.LEFT_TO_RIGHT -> "Left to Right"
-                        GradientDirection.DIAGONAL      -> "Diagonal (Linear)"
-                        GradientDirection.RADIAL        -> "Radial (Circular)"
-                    },
-                    icon     = Icons.Default.TrendingFlat
-                ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        GradientDirection.entries.forEach { dir ->
-                            FilterChip(
-                                selected = settings.gradientDirection == dir,
-                                onClick  = { onUpdate { copy(gradientDirection = dir) } },
-                                label    = {
-                                    Text(
-                                        text      = when (dir) {
-                                            GradientDirection.TOP_TO_BOTTOM -> "Vertical"
-                                            GradientDirection.LEFT_TO_RIGHT -> "Horizontal"
-                                            GradientDirection.DIAGONAL      -> "Diagonal"
-                                            GradientDirection.RADIAL        -> "Radial"
-                                        },
-                                        fontSize  = 9.sp,
-                                        letterSpacing = 0.5.sp
-                                    )
-                                },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = accent,
-                                    selectedLabelColor     = Color.Black
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-
-            SettingsDivider()
-
-            // Wallpaper
-            SettingsButton(
-                label    = "Set Wallpaper",
-                sublabel = if (settings.wallpaperUri.isNotEmpty()) "Custom wallpaper active" else "Choose image from gallery",
-                icon     = Icons.Default.Wallpaper,
-                accent   = accent,
-                onClick  = { wallpaperPicker.launch(arrayOf("image/*")) }
-            )
-            if (settings.wallpaperUri.isNotEmpty()) {
-                Column {
-                    SettingsRow(
-                        label    = "Wallpaper Dim",
-                        sublabel = "${"%.0f".format(settings.wallpaperDim * 100)}%",
-                        icon     = Icons.Default.BrightnessLow
-                    ) {}
-                    Slider(
-                        value         = settings.wallpaperDim,
-                        onValueChange = { onUpdate { copy(wallpaperDim = it) } },
-                        valueRange    = 0f..0.95f,
-                        steps         = 18,
-                        colors        = sliderColors(accent),
-                        modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-                    )
-                    Spacer(Modifier.height(4.dp))
-                    TextButton(
-                        onClick  = { onUpdate { copy(wallpaperUri = "") } },
-                        modifier = Modifier.align(Alignment.End)
-                    ) {
-                        Text("REMOVE WALLPAPER", color = Color(0xFF993333), fontSize = 9.sp, letterSpacing = 1.sp)
-                    }
-                }
             }
         }
 
@@ -771,14 +530,15 @@ fun SettingsScreen(
                 accent   = accent,
                 onClick  = {
                     calibrationStatus = "Clearing A-GPS cache..."
-                    val lm = context.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+                    val lm = context.getSystemService(Context.LOCATION_SERVICE) as LocationManager
                     var success = false
                     try {
-                        // "delete_aiding_data" is the command AOSP's GPS provider
-                        // actually recognizes (requires ACCESS_LOCATION_EXTRA_COMMANDS)
-                        success = lm.sendExtraCommand(android.location.LocationManager.GPS_PROVIDER, "delete_aiding_data", android.os.Bundle())
-                        lm.sendExtraCommand(android.location.LocationManager.GPS_PROVIDER, "force_xtra_injection", null)
-                        lm.sendExtraCommand(android.location.LocationManager.GPS_PROVIDER, "force_time_injection", null)
+                        success = lm.sendExtraCommand(
+                            LocationManager.GPS_PROVIDER, "delete_aiding_data",
+                            Bundle()
+                        )
+                        lm.sendExtraCommand(LocationManager.GPS_PROVIDER, "force_xtra_injection", null)
+                        lm.sendExtraCommand(LocationManager.GPS_PROVIDER, "force_time_injection", null)
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -793,10 +553,6 @@ fun SettingsScreen(
             
             SettingsDivider()
             
-            // 2. Drive-in-circles magnetometer sweep. Android's sensor stack
-            // self-calibrates the magnetometer continuously — the circles feed it
-            // diverse readings. The timer guides the sweep; it does not (and
-            // cannot) apply offsets itself, so the message must not claim it did.
             SettingsButton(
                 label    = "Magnetometer Sweep (Parking Lot)",
                 sublabel = if (isCalibratingCompass) {
@@ -816,7 +572,7 @@ fun SettingsScreen(
                                 compassCountdown--
                             }
                             isCalibratingCompass = false
-                            calibrationStatus = "Sweep complete — check the compass widget; if heading is still off, use the manual offset below"
+                            calibrationStatus = "Sweep complete — check heading"
                         }
                     }
                 }
@@ -824,7 +580,6 @@ fun SettingsScreen(
 
             SettingsDivider()
 
-            // 4. Manual Compass Heading Offset Slider
             Column(modifier = Modifier.padding(bottom = 8.dp)) {
                 SettingsRow(
                     label    = "Compass Heading Offset",
@@ -835,7 +590,7 @@ fun SettingsScreen(
                     value         = settings.compassOffset,
                     onValueChange = { onUpdate { copy(compassOffset = it) } },
                     valueRange    = -180f..180f,
-                    steps         = 71, // 5 degree steps: 360 / 5 - 1 = 71 steps
+                    steps         = 71,
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
@@ -850,14 +605,8 @@ fun SettingsScreen(
                 icon = Icons.Default.Description,
                 accent = accent,
                 onClick = {
-                    val logFile = com.openlauncher.app.util.FileLogger.getLogFilePath(context)
-                    val intent = Intent(Intent.ACTION_VIEW).apply {
-                        setDataAndType(Uri.parse("content://com.openlauncher.app.provider/logs"), "text/plain")
-                        // Simplified for now: user can just check /Android/data/com.openlauncher.app/files/launcher_logs.txt
-                        // I'll just show a toast or dialog with the path
-                        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    }
-                    android.widget.Toast.makeText(context, "Logs at: $logFile", android.widget.Toast.LENGTH_LONG).show()
+                    val logFile = FileLogger.getLogFilePath(context)
+                    Toast.makeText(context, "Logs at: $logFile", Toast.LENGTH_LONG).show()
                 }
             )
             
@@ -911,38 +660,6 @@ fun SettingsScreen(
         )
     }
 
-    if (showBgPicker) {
-        ColorPickerDialog(
-            title           = "Background Color",
-            initialColor    = Color(settings.backgroundColor),
-            onColorSelected = { c -> 
-                onUpdate { 
-                    copy(
-                        backgroundColor = c.toArgb(),
-                        useCustomBackgroundColor = true
-                    ) 
-                } 
-            },
-            onDismiss       = { showBgPicker = false }
-        )
-    }
-
-    if (showGradientEndPicker) {
-        ColorPickerDialog(
-            title           = "Gradient End Color",
-            initialColor    = Color(settings.gradientEndColor),
-            onColorSelected = { c -> 
-                onUpdate { 
-                    copy(
-                        gradientEndColor = c.toArgb(),
-                        useCustomBackgroundColor = true
-                    ) 
-                } 
-            },
-            onDismiss       = { showGradientEndPicker = false }
-        )
-    }
-
     if (showFontColorPicker) {
         ColorPickerDialog(
             title           = "Font Color",
@@ -986,7 +703,8 @@ private fun SettingsSection(
 private fun SettingsRow(
     label: String,
     sublabel: String = "",
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
+    onClick: (() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit
 ) {
     val isDayMode   = LocalDayMode.current
@@ -997,6 +715,7 @@ private fun SettingsRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(MaterialTheme.shapes.medium)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
             .padding(horizontal = 4.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1023,7 +742,7 @@ private fun SettingsRow(
 private fun ColumnScope.SettingsButton(
     label: String,
     sublabel: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    icon: ImageVector,
     accent: Color,
     onClick: () -> Unit
 ) {
@@ -1062,22 +781,6 @@ private fun ColumnScope.SettingsButton(
 @Composable
 private fun ColumnScope.SettingsDivider() {
     // Hidden in expressive mode as sections use card containers
-}
-
-@Composable
-private fun outlinedFieldColors(accent: Color): TextFieldColors {
-    val isDayMode = LocalDayMode.current
-    val textColor = if (isDayMode) Color(0xFF111111) else Color.White
-    val borderU   = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF2A2A2A)
-    return OutlinedTextFieldDefaults.colors(
-        focusedBorderColor   = accent,
-        unfocusedBorderColor = borderU,
-        focusedTextColor     = textColor,
-        unfocusedTextColor   = textColor,
-        cursorColor          = accent,
-        focusedLabelColor    = accent,
-        unfocusedLabelColor  = if (isDayMode) Color(0xFF888888) else Color(0xFF666666)
-    )
 }
 
 @Composable

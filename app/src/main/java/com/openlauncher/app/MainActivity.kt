@@ -1,8 +1,8 @@
 package com.openlauncher.app
 
 import android.Manifest
-import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -17,11 +17,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -30,16 +29,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.GradientDirection
+import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.model.NavDestination
+import com.openlauncher.app.model.NowPlayingState
+import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.ui.components.Sidebar
 import com.openlauncher.app.ui.screen.AppLibraryScreen
 import com.openlauncher.app.ui.screen.HomeScreen
@@ -52,45 +57,6 @@ import kotlinx.coroutines.delay
 class MainActivity : ComponentActivity() {
 
     private val vm: LauncherViewModel by viewModels()
-
-    private val widgetPicker = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val appWidgetId = result.data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
-        if (result.resultCode == RESULT_OK) {
-            if (appWidgetId != -1) {
-                val info = vm.appWidgetManager.getAppWidgetInfo(appWidgetId)
-                if (info?.configure != null) {
-                    val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
-                    intent.component = info.configure
-                    intent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-                    widgetConfigLauncher.launch(intent)
-                } else {
-                    vm.addAndroidWidget(appWidgetId)
-                }
-            }
-        } else if (appWidgetId != -1) {
-            vm.appWidgetHost.deleteAppWidgetId(appWidgetId)
-        }
-    }
-
-    private val widgetConfigLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val appWidgetId = result.data?.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, -1) ?: -1
-        if (result.resultCode == RESULT_OK) {
-            if (appWidgetId != -1) vm.addAndroidWidget(appWidgetId)
-        } else if (appWidgetId != -1) {
-            vm.appWidgetHost.deleteAppWidgetId(appWidgetId)
-        }
-    }
-
-    private fun startWidgetPicker() {
-        val appWidgetId = vm.appWidgetHost.allocateAppWidgetId()
-        val pickIntent = Intent(AppWidgetManager.ACTION_APPWIDGET_PICK)
-        pickIntent.putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
-        widgetPicker.launch(pickIntent)
-    }
 
     private val locationPermissions = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -136,10 +102,9 @@ class MainActivity : ComponentActivity() {
             val appsLoading by vm.appsLoading.collectAsStateWithLifecycle()
             val nowPlaying  by vm.nowPlaying.collectAsStateWithLifecycle()
             val weather     by vm.weather.collectAsStateWithLifecycle()
-            val location    by vm.location.collectAsStateWithLifecycle()
-            val bearing     by vm.compassBearing.collectAsStateWithLifecycle()
             val wifiLevel   by vm.wifiLevel.collectAsStateWithLifecycle()
             val mobileLevel by vm.mobileLevel.collectAsStateWithLifecycle()
+            val satelliteCount by vm.satelliteCount.collectAsStateWithLifecycle()
             val isDayModeVM by vm.isDayMode.collectAsStateWithLifecycle()
             val appIconMap  by vm.appIconMap.collectAsStateWithLifecycle()
             val systemIsDark = isSystemInDarkTheme()
@@ -147,14 +112,17 @@ class MainActivity : ComponentActivity() {
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
 
-            val editMode by vm.rearrangeMode.collectAsStateWithLifecycle()
-            val widgetLibraryOpen by vm.widgetLibraryOpen.collectAsStateWithLifecycle()
-
             AppAutostartHandler(
                 settingsLoaded = settingsLoaded,
                 autostartPackages = settings.autostartPackages,
                 autostartDelay = settings.autostartDelay,
                 onLaunchApp = vm::launchApp
+            )
+
+            AppMediaBootHandler(
+                settingsLoaded = settingsLoaded,
+                playMediaOnBoot = settings.playMediaOnBoot,
+                onPlayMedia = { vm.playLastOrOpenActive(this@MainActivity) }
             )
 
             val accent         = Color(settings.accentColor)
@@ -168,10 +136,10 @@ class MainActivity : ComponentActivity() {
             val bgBrush        = if (settings.useCustomBackgroundColor && settings.useGradient) {
                 val colors = listOf(bg, bgGradientEnd)
                 when (settings.gradientDirection) {
-                    GradientDirection.TOP_TO_BOTTOM -> androidx.compose.ui.graphics.Brush.verticalGradient(colors)
-                    GradientDirection.LEFT_TO_RIGHT -> androidx.compose.ui.graphics.Brush.horizontalGradient(colors)
-                    GradientDirection.DIAGONAL -> androidx.compose.ui.graphics.Brush.linearGradient(colors)
-                    GradientDirection.RADIAL -> androidx.compose.ui.graphics.Brush.radialGradient(colors)
+                    GradientDirection.TOP_TO_BOTTOM -> Brush.verticalGradient(colors)
+                    GradientDirection.LEFT_TO_RIGHT -> Brush.horizontalGradient(colors)
+                    GradientDirection.DIAGONAL -> Brush.linearGradient(colors)
+                    GradientDirection.RADIAL -> Brush.radialGradient(colors)
                 }
             } else null
 
@@ -200,25 +168,17 @@ class MainActivity : ComponentActivity() {
                         appsLoading = appsLoading,
                         nowPlaying = nowPlaying,
                         weather = weather,
-                        location = location,
-                        bearing = bearing,
                         wifiLevel = wifiLevel,
                         mobileLevel = mobileLevel,
+                        satelliteCount = satelliteCount,
                         isDayMode = isDayMode,
                         appIconMap = appIconMap,
                         pickerSlot = pickerSlot,
                         appPickerTarget = appPickerTarget,
-                        editMode = editMode,
-                        onSetEditMode = { vm.toggleRearrangeMode() },
-                        onSetNowPlayingCompact = { compact -> vm.updateSettings { copy(nowPlayingCompact = compact) } },
-                        widgetLibraryOpen = widgetLibraryOpen,
-                        onSetWidgetLibraryOpen = { vm.setWidgetLibraryOpen(it) },
                         accent = accent,
                         bg = bg,
                         bgBrush = bgBrush,
-                        vm = vm,
-                        startWidgetPicker = ::startWidgetPicker,
-                        onPlayPause = { vm.playPause(this@MainActivity) }
+                        vm = vm
                     )
                 }
             } // CompositionLocalProvider
@@ -268,34 +228,42 @@ private fun AppAutostartHandler(
 }
 
 @Composable
+private fun AppMediaBootHandler(
+    settingsLoaded: Boolean,
+    playMediaOnBoot: Boolean,
+    onPlayMedia: () -> Unit
+) {
+    var mediaPlayed by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(settingsLoaded) {
+        if (settingsLoaded && playMediaOnBoot && !mediaPlayed) {
+            delay(1000)
+            onPlayMedia()
+            mediaPlayed = true
+        }
+    }
+}
+
+@Composable
 private fun MainContentShell(
-    settings: com.openlauncher.app.data.AppSettings,
-    nav: com.openlauncher.app.model.NavDestination,
-    apps: List<com.openlauncher.app.model.AppInfo>,
+    settings: AppSettings,
+    nav: NavDestination,
+    apps: List<AppInfo>,
     appsLoading: Boolean,
-    nowPlaying: com.openlauncher.app.model.NowPlayingState?,
-    weather: com.openlauncher.app.model.WeatherState?,
-    location: com.openlauncher.app.util.LocationData?,
-    bearing: Float,
+    nowPlaying: NowPlayingState?,
+    weather: WeatherState?,
     wifiLevel: Int,
     mobileLevel: Int,
+    satelliteCount: Int = 0,
     isDayMode: Boolean,
-    appIconMap: Map<String, android.graphics.drawable.Drawable>,
+    appIconMap: Map<String, Drawable>,
     pickerSlot: Int?,
-    appPickerTarget: com.openlauncher.app.viewmodel.LauncherViewModel.AppPickerTarget?,
-    editMode: Boolean,
-    onSetEditMode: (Boolean) -> Unit,
-    onSetNowPlayingCompact: (Boolean) -> Unit,
-    widgetLibraryOpen: Boolean,
-    onSetWidgetLibraryOpen: (Boolean) -> Unit,
+    appPickerTarget: LauncherViewModel.AppPickerTarget?,
     accent: Color,
     bg: Color,
-    bgBrush: androidx.compose.ui.graphics.Brush?,
-    vm: com.openlauncher.app.viewmodel.LauncherViewModel,
-    startWidgetPicker: () -> Unit,
-    onPlayPause: () -> Unit
+    bgBrush: Brush?,
+    vm: LauncherViewModel
 ) {
-    val context = androidx.compose.ui.platform.LocalContext.current
+    val context = LocalContext.current
     
     if (!settings.onboardingCompleted) {
         OnboardingScreen(
@@ -306,25 +274,10 @@ private fun MainContentShell(
             }
         )
     } else {
-        Box(modifier = Modifier.fillMaxSize().let { m ->
-            if (bgBrush != null) m.background(bgBrush) else m.background(bg)
-        }) {
-            // Optional wallpaper layer
-            if (settings.wallpaperUri.isNotEmpty()) {
-                coil.compose.AsyncImage(
-                    model              = android.net.Uri.parse(settings.wallpaperUri),
-                    contentDescription = null,
-                    contentScale       = androidx.compose.ui.layout.ContentScale.Crop,
-                    modifier           = Modifier.fillMaxSize()
-                )
-                Box(modifier = Modifier.fillMaxSize()
-                    .background(Color.Black.copy(alpha = settings.wallpaperDim)))
-            }
+        Box(modifier = Modifier.fillMaxSize().background(bg)) {
+            val layoutDivColor = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF151515)
 
-            val isBottomBar    = settings.sidebarPosition == com.openlauncher.app.data.SidebarPosition.BOTTOM
-            val layoutDivColor = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF000000)
-
-            val baseDensity = androidx.compose.ui.platform.LocalDensity.current
+            val baseDensity = LocalDensity.current
             val sidebarContent: @Composable () -> Unit = {
                 val sidebarDensity = Density(
                     density = baseDensity.density * (1.0f + (settings.uiScale - 1.0f) * 0.35f),
@@ -334,7 +287,6 @@ private fun MainContentShell(
                     Sidebar(
                         currentDest   = nav,
                         settings      = settings,
-                        isHorizontal  = isBottomBar,
                         installedIconFor = { pkg -> appIconMap[pkg] },
                         onNavigate    = { dest ->
                             vm.cancelShortcutPicker()
@@ -343,13 +295,9 @@ private fun MainContentShell(
                             vm.navigate(dest)
                         },
                         onShortcutClick = { slot ->
-                            val shortcut = settings.shortcuts[slot]
-                            if (shortcut.packageName.isNotEmpty()) {
-                                if (settings.showPip) {
-                                    vm.updateSettings { copy(pipAppPackage = shortcut.packageName) }
-                                } else {
-                                    vm.launchApp(shortcut.packageName)
-                                }
+                            val shortcut = settings.shortcuts.getOrNull(slot)
+                            if (shortcut != null && shortcut.packageName.isNotEmpty()) {
+                                vm.updateSettings { copy(pipAppPackage = shortcut.packageName) }
                             }
                         },
                         onShortcutLongPress  = { slot -> vm.startShortcutPicker(slot) },
@@ -358,9 +306,7 @@ private fun MainContentShell(
                         onReorder            = { from, to -> vm.reorderShortcut(from, to) },
                         wifiLevel            = wifiLevel,
                         mobileLevel          = mobileLevel,
-                        editMode             = editMode,
-                        onToggleEditMode     = { onSetEditMode(!editMode) },
-                        onOpenWidgetLibrary  = { onSetWidgetLibraryOpen(true) }
+                        satelliteCount       = satelliteCount
                     )
                 }
             }
@@ -371,51 +317,20 @@ private fun MainContentShell(
                         settings            = settings,
                         weather             = weather,
                         nowPlaying          = nowPlaying,
-                        location            = location,
-                        bearing             = bearing,
                         isDayMode           = isDayMode,
-                        onPlayPause         = onPlayPause,
-                        onNext              = vm::skipNext,
-                        onPrev              = vm::skipPrev,
-                        onLaunchCarPlay     = { vm.launchApp(settings.carPlayPackage) },
-                        onLaunchAndroidAuto = { vm.launchApp(settings.androidAutoPackage) },
-                        onAssignCarPlay     = { vm.startCarPlayPicker() },
-                        onAssignAndroidAuto = { vm.startAndroidAutoPicker() },
-                        onClearCarPlay      = { vm.clearCarPlayApp() },
-                        onClearAndroidAuto  = { vm.clearAndroidAutoApp() },
-                        onAssignPip         = { vm.startPipPicker() },
-                        onClearPip          = { vm.clearPipApp() },
-                        onLaunchPip         = { vm.launchApp(settings.pipAppPackage) },
-                        onAddAndroidWidget  = { startWidgetPicker() },
+                        onPlayPause         = { vm.playPause(context) },
                         onTapNowPlaying     = {
                             val pkg = nowPlaying?.controller?.packageName
                             if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
                             vm.playLastOrOpenActive(context)
                         },
-                        onUpdateWidget      = { id, sx, sy -> vm.updateWidgetConfig(id, sx, sy) },
-                        onMoveWidget        = { id, gx, gy -> vm.moveWidgetConfig(id, gx, gy) },
-                        onAddWidget         = { id -> vm.addWidget(id) },
-                        onRemoveWidget      = { id -> vm.removeWidget(id) },
-                        onSetClockStyle     = { style -> vm.updateSettings { copy(clockStyle = style) } },
-                        onSetNowPlayingCompact = onSetNowPlayingCompact,
-                        onSetVitalsAsBars   = { asBars -> vm.updateSettings { copy(vitalsAsBars = asBars) } },
-                        onSetSpeedometerDigitalOnly = { digital -> vm.updateSettings { copy(speedometerDigitalOnly = digital) } },
-                        onUpdateSoundPad    = { idx, pad -> vm.updateSoundboardPad(idx, pad) },
-                        onToggleMapProvider = { vm.toggleMapProvider() },
-                        onToggleTraffic     = { vm.toggleTraffic() },
-                        onSetMapType        = { vm.setMapType(it) },
-                        appWidgetHost       = vm.appWidgetHost,
-                        editMode            = editMode,
-                        onToggleEditMode    = { onSetEditMode(!editMode) },
-                        widgetLibraryOpen   = widgetLibraryOpen,
-                        onSetWidgetLibraryOpen = { onSetWidgetLibraryOpen(it) },
-                        isOverlayOpen       = nav != com.openlauncher.app.model.NavDestination.HOME,
+                        isOverlayOpen       = nav != NavDestination.HOME,
                         modifier = Modifier.fillMaxSize()
                     )
 
                     // Overlay screens
                     AnimatedVisibility(
-                        visible = nav == com.openlauncher.app.model.NavDestination.APP_LIBRARY,
+                        visible = nav == NavDestination.APP_LIBRARY,
                         enter = fadeIn() + slideInHorizontally { it / 10 },
                         exit = fadeOut() + slideOutHorizontally { -it / 10 }
                     ) {
@@ -438,12 +353,13 @@ private fun MainContentShell(
                             onAppClick          = { app -> vm.launchApp(app.packageName) },
                             onPickerSelect      = { slot, app -> vm.assignShortcut(slot, app) },
                             onCarPlaySelect     = { app -> vm.assignPickerApp(app) },
+                            onOpenSettings      = { vm.navigate(NavDestination.SETTINGS) },
                             modifier = Modifier.fillMaxSize().background(bg).clickable(onClick = {})
                         )
                     }
 
                     AnimatedVisibility(
-                        visible = nav == com.openlauncher.app.model.NavDestination.SETTINGS,
+                        visible = nav == NavDestination.SETTINGS,
                         enter = fadeIn() + slideInHorizontally { it / 10 },
                         exit = fadeOut() + slideOutHorizontally { -it / 10 }
                     ) {
@@ -460,30 +376,13 @@ private fun MainContentShell(
                 }
             }
 
-            if (isBottomBar) {
-                Column(modifier = Modifier.fillMaxSize()) {
-                    mainPane(Modifier.weight(1f).fillMaxWidth())
-                    androidx.compose.material3.HorizontalDivider(color = layoutDivColor)
-                    sidebarContent()
-                }
-            } else {
-                Row(modifier = Modifier.fillMaxSize()) {
-                    val vDivider: @Composable () -> Unit = {
-                        androidx.compose.material3.VerticalDivider(
-                            modifier = Modifier.fillMaxHeight(),
-                            color    = layoutDivColor
-                        )
-                    }
-                    if (settings.sidebarPosition == com.openlauncher.app.data.SidebarPosition.LEFT) {
-                        sidebarContent()
-                        vDivider()
-                    }
-                    mainPane(Modifier.weight(1f).fillMaxHeight())
-                    if (settings.sidebarPosition == com.openlauncher.app.data.SidebarPosition.RIGHT) {
-                        vDivider()
-                        sidebarContent()
-                    }
-                }
+            Row(modifier = Modifier.fillMaxSize()) {
+                sidebarContent()
+                VerticalDivider(
+                    modifier = Modifier.fillMaxHeight(),
+                    color    = layoutDivColor
+                )
+                mainPane(Modifier.weight(1f).fillMaxHeight())
             }
         }
     }
