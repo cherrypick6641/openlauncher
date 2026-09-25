@@ -2,7 +2,6 @@ package com.openlauncher.app.viewmodel
 
 import android.app.Application
 import android.appwidget.AppWidgetHost
-import android.appwidget.AppWidgetManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
@@ -12,27 +11,21 @@ import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
-import android.os.Looper
 import android.telephony.PhoneStateListener
 import android.telephony.SignalStrength
 import android.telephony.TelephonyManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.gson.Gson
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.data.DefaultShortcutIcon
-import com.openlauncher.app.data.GRID_COLS
-import com.openlauncher.app.data.GRID_ROWS
-import com.openlauncher.app.data.MapProvider
+import com.openlauncher.app.data.NominatimApi
 import com.openlauncher.app.data.SettingsRepository
 import com.openlauncher.app.data.ShortcutConfig
-import com.openlauncher.app.data.SoundPadConfig
 import com.openlauncher.app.data.WeatherApi
-import com.openlauncher.app.data.activeWidgetIds
-import com.openlauncher.app.data.computeWidgetMove
 import com.openlauncher.app.data.defaultShortcuts
 import com.openlauncher.app.model.AppInfo
+import com.openlauncher.app.model.DailyForecast
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
 import com.openlauncher.app.model.WeatherState
@@ -68,57 +61,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     
     // Android AppWidget Support
     val appWidgetHost = AppWidgetHost(application, APPWIDGET_HOST_ID)
-    val appWidgetManager = AppWidgetManager.getInstance(application)
 
     fun startListeningWidgets() { appWidgetHost.startListening() }
     fun stopListeningWidgets()  { appWidgetHost.stopListening() }
-
-    fun addAndroidWidget(appWidgetId: Int) {
-        updateSettings {
-            val activeIds = activeWidgetIds()
-            var currentLayout = widgetLayout
-            
-            // Try to find a 2x2 area first, then fallback to 1x1 if needed
-            var targetSpanX = 2
-            var targetSpanY = 2
-            var cell = freeAreaIn(currentLayout, activeIds, targetSpanX, targetSpanY)
-
-            if (cell == null) {
-                // Try 1x1
-                targetSpanX = 1
-                targetSpanY = 1
-                cell = freeAreaIn(currentLayout, activeIds, targetSpanX, targetSpanY)
-            }
-
-            if (cell == null) {
-                // Try to shrink something to make room for at least 1x1
-                val candidate = currentLayout
-                    .filter { it.enabled && it.id in activeIds && it.spanX * it.spanY > 1 }
-                    .maxByOrNull { it.spanX * it.spanY }
-                if (candidate != null) {
-                    currentLayout = currentLayout.map { w ->
-                        if (w.id == candidate.id)
-                            if (w.spanY > 1) w.copy(spanY = w.spanY - 1) else w.copy(spanX = w.spanX - 1)
-                        else w
-                    }
-                    cell = freeAreaIn(currentLayout, activeIds, targetSpanX, targetSpanY)
-                }
-            }
-
-            val targetCell = cell ?: return@updateSettings this
-            val uniqueId = "ANDROID_WIDGET_$appWidgetId"
-            
-            val newWidget = com.openlauncher.app.data.WidgetConfig(
-                id = uniqueId,
-                gridX = targetCell.first,
-                gridY = targetCell.second,
-                spanX = targetSpanX,
-                spanY = targetSpanY,
-                appWidgetId = appWidgetId
-            )
-            copy(widgetLayout = currentLayout + newWidget)
-        }
-    }
 
     // ── Settings ──────────────────────────────────────────────────────────────
     private val _settingsLoaded = MutableStateFlow(false)
@@ -193,26 +138,11 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _shortcutPickerSlot.value = null
     }
 
-    // ── CarPlay / Android Auto / Autostart picker ─────────────────────────────
-    enum class AppPickerTarget { CARPLAY, ANDROID_AUTO, PIP, AUTOSTART_1, AUTOSTART_2, AUTOSTART_3, AUTOSTART_4 }
+    // ── App picker & Autostart ────────────────────────────────────────────────
+    enum class AppPickerTarget { PIP, AUTOSTART_1, AUTOSTART_2, AUTOSTART_3, AUTOSTART_4 }
 
     private val _appPickerTarget = MutableStateFlow<AppPickerTarget?>(null)
     val appPickerTarget: StateFlow<AppPickerTarget?> = _appPickerTarget
-
-    fun startCarPlayPicker() {
-        _appPickerTarget.value = AppPickerTarget.CARPLAY
-        _nav.value = NavDestination.APP_LIBRARY
-    }
-
-    fun startAndroidAutoPicker() {
-        _appPickerTarget.value = AppPickerTarget.ANDROID_AUTO
-        _nav.value = NavDestination.APP_LIBRARY
-    }
-
-    fun startPipPicker() {
-        _appPickerTarget.value = AppPickerTarget.PIP
-        _nav.value = NavDestination.APP_LIBRARY
-    }
 
     fun startAutostartPicker(slot: Int) {
         _appPickerTarget.value = when (slot) {
@@ -236,8 +166,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     fun assignPickerApp(app: AppInfo) {
         when (_appPickerTarget.value) {
-            AppPickerTarget.CARPLAY      -> updateSettings { copy(carPlayPackage = app.packageName) }
-            AppPickerTarget.ANDROID_AUTO -> updateSettings { copy(androidAutoPackage = app.packageName) }
             AppPickerTarget.PIP          -> updateSettings { copy(pipAppPackage = app.packageName) }
             AppPickerTarget.AUTOSTART_1  -> assignAutostart(0, app.packageName)
             AppPickerTarget.AUTOSTART_2  -> assignAutostart(1, app.packageName)
@@ -249,9 +177,6 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         _nav.value = NavDestination.HOME
     }
 
-    fun clearCarPlayApp()      { updateSettings { copy(carPlayPackage = "") } }
-    fun clearAndroidAutoApp()  { updateSettings { copy(androidAutoPackage = "") } }
-    fun clearPipApp()          { updateSettings { copy(pipAppPackage = "") } }
     fun clearAutostartApp(index: Int) {
         updateSettings {
             val list = autostartPackages.toMutableList()
@@ -262,198 +187,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun updateWidgetConfig(id: String, spanX: Int, spanY: Int) {
-        updateSettings {
-            val resized = widgetLayout.map { w ->
-                if (w.id == id) w.copy(
-                    spanX = spanX.coerceIn(1, GRID_COLS - w.gridX),
-                    spanY = spanY.coerceIn(1, GRID_ROWS - w.gridY)
-                ) else w
-            }
-            // Re-run collision resolution so enlarging a widget pushes neighbors
-            // aside instead of stacking on top of them
-            val activeIds = activeWidgetIds()
-            val active    = resized.filter { it.enabled && it.id in activeIds }
-            val inactive  = resized.filter { !it.enabled || it.id !in activeIds }
-            val target    = active.find { it.id == id }
-            copy(widgetLayout = if (target != null)
-                computeWidgetMove(active, id, target.gridX, target.gridY) + inactive
-            else resized)
-        }
-    }
-
-    fun moveWidgetConfig(id: String, gridX: Int, gridY: Int) {
-        updateSettings {
-            val activeIds = activeWidgetIds()
-            val active   = widgetLayout.filter { it.enabled && it.id in activeIds }
-            val inactive = widgetLayout.filter { !it.enabled || it.id !in activeIds }
-            copy(widgetLayout = computeWidgetMove(active, id, gridX, gridY) + inactive)
-        }
-    }
-
-    fun addWidget(id: String) {
-        updateSettings {
-            val activeIds = activeWidgetIds()
-            var layout    = widgetLayout
-            var cell      = freeCellIn(layout, activeIds)
-
-            // If grid is full, shrink the largest multi-cell widget by one span to make room
-            if (cell == null) {
-                val candidate = layout
-                    .filter { it.enabled && it.id in activeIds && it.spanX * it.spanY > 1 }
-                    .maxByOrNull { it.spanX * it.spanY }
-                if (candidate != null) {
-                    layout = layout.map { w ->
-                        if (w.id == candidate.id)
-                            if (w.spanY > 1) w.copy(spanY = w.spanY - 1) else w.copy(spanX = w.spanX - 1)
-                        else w
-                    }
-                    cell = freeCellIn(layout, activeIds)
-                }
-            }
-
-            val cell_ = cell ?: return@updateSettings this
-
-            val withShow = when (id) {
-                "CLOCK"       -> copy(showClock = true)
-                "WEATHER"     -> copy(showWeather = true)
-                "NOW_PLAYING" -> copy(showNowPlaying = true)
-                "TELEMETRY"   -> copy(showTelemetry = true)
-                "ALTIMETER"   -> copy(showAltimeter = true)
-                "SPEEDOMETER" -> copy(showSpeedometer = true)
-                "VITALS"      -> copy(showVitals = true)
-                "TRIP_TRACKER" -> copy(showTripTracker = true)
-                "SOUNDBOARD"  -> copy(showSoundboard = true)
-                "MAP" -> copy(showMap = true)
-                "PIP" -> copy(showPip = true)
-                else          -> this
-            }
-            val idx       = layout.indexOfFirst { it.id == id }
-            val newLayout = if (idx >= 0) layout.toMutableList().also { list ->
-                val w = list[idx]
-                val targetSpanX = if (id == "PIP") 4 else w.spanX
-                val targetSpanY = if (id == "PIP") 4 else w.spanY
-                
-                val area = if (targetSpanX > 1 || targetSpanY > 1) freeAreaIn(layout, activeIds, targetSpanX, targetSpanY) else null
-                list[idx] = if (area != null)
-                    w.copy(enabled = true, gridX = area.first, gridY = area.second, spanX = targetSpanX, spanY = targetSpanY)
-                else
-                    w.copy(enabled = true, gridX = cell_.first, gridY = cell_.second, spanX = 1, spanY = 1)
-            } else {
-                val span = if (id == "PIP") 4 else 1
-                layout + com.openlauncher.app.data.WidgetConfig(id, cell_.first, cell_.second, spanX = span, spanY = span)
-            }
-            withShow.copy(widgetLayout = newLayout)
-        }
-    }
-
-    fun toggleMapProvider() {
-        updateSettings {
-            copy(mapProvider = if (mapProvider == MapProvider.OSM) MapProvider.GOOGLE else MapProvider.OSM)
-        }
-    }
-
-    fun setMapType(type: com.openlauncher.app.data.MapType) {
-        updateSettings {
-            copy(mapType = type)
-        }
-    }
-
-    fun toggleTraffic() {
-        updateSettings {
-            copy(showTraffic = !showTraffic)
-        }
-    }
-
-    fun removeWidget(id: String) {
-        updateSettings {
-            val withShowRemoved = when (id) {
-                "CLOCK"       -> copy(showClock = false)
-                "WEATHER"     -> copy(showWeather = false)
-                "NOW_PLAYING" -> copy(showNowPlaying = false)
-                "TELEMETRY"   -> copy(showTelemetry = false)
-                "ALTIMETER"   -> copy(showAltimeter = false)
-                "SPEEDOMETER" -> copy(showSpeedometer = false)
-                "VITALS"      -> copy(showVitals = false)
-                "TRIP_TRACKER" -> copy(showTripTracker = false)
-                "SOUNDBOARD"  -> copy(showSoundboard = false)
-                "MAP" -> copy(showMap = false)
-                "PIP" -> copy(showPip = false)
-                else          -> this
-            }
-            
-            // For custom Android widgets, remove them entirely from the list
-            // For built-in widgets, just set enabled = false
-            val isCustom = id.startsWith("ANDROID_WIDGET_")
-            val newLayout = if (isCustom) {
-                withShowRemoved.widgetLayout.filter { w ->
-                    if (w.id == id) {
-                        w.appWidgetId?.let { appWidgetHost.deleteAppWidgetId(it) }
-                        false
-                    } else true
-                }
-            } else {
-                withShowRemoved.widgetLayout.map { w ->
-                    if (w.id == id) {
-                        w.appWidgetId?.let { appWidgetHost.deleteAppWidgetId(it) }
-                        w.copy(enabled = false)
-                    } else w
-                }
-            }
-            withShowRemoved.copy(widgetLayout = newLayout)
-        }
-    }
-
-    fun updateSoundboardPad(index: Int, pad: SoundPadConfig) {
-        updateSettings {
-            // Persisted lists from older versions may be shorter than the 6 pads
-            // the widget displays — pad before assigning to avoid IndexOutOfBounds
-            val padded = soundboardPads.toMutableList()
-            while (padded.size <= index) padded.add(SoundPadConfig("+", synthType = ""))
-            padded[index] = pad
-            copy(soundboardPads = padded)
-        }
-    }
-
-    private fun freeCellIn(
-        layout: List<com.openlauncher.app.data.WidgetConfig>,
-        activeIds: Set<String>
-    ): Pair<Int, Int>? = freeAreaIn(layout, activeIds, 1, 1)
-
-    private fun freeAreaIn(
-        layout: List<com.openlauncher.app.data.WidgetConfig>,
-        activeIds: Set<String>,
-        spanX: Int,
-        spanY: Int
-    ): Pair<Int, Int>? {
-        val occupied = buildSet<Pair<Int, Int>> {
-            layout.filter { it.enabled && it.id in activeIds }.forEach { w ->
-                for (dx in 0 until w.spanX) for (dy in 0 until w.spanY) add(w.gridX + dx to w.gridY + dy)
-            }
-        }
-        for (row in 0 until GRID_ROWS) for (col in 0 until GRID_COLS) {
-            if (col + spanX > GRID_COLS || row + spanY > GRID_ROWS) continue
-            if ((0 until spanX).all { dx -> (0 until spanY).all { dy -> (col + dx to row + dy) !in occupied } })
-                return col to row
-        }
-        return null
-    }
-
-    fun cancelCarPlayPicker() {
+    fun cancelPicker() {
         _appPickerTarget.value = null
     }
-
-    // ── Rearrange mode ────────────────────────────────────────────────────────
-    private val _rearrangeMode = MutableStateFlow(false)
-    val rearrangeMode: StateFlow<Boolean> = _rearrangeMode
-
-    fun toggleRearrangeMode() { _rearrangeMode.value = !_rearrangeMode.value }
-    fun exitRearrangeMode()   { _rearrangeMode.value = false }
-
-    private val _widgetLibraryOpen = MutableStateFlow(false)
-    val widgetLibraryOpen: StateFlow<Boolean> = _widgetLibraryOpen
-
-    fun setWidgetLibraryOpen(open: Boolean) { _widgetLibraryOpen.value = open }
 
     // ── Installed apps ────────────────────────────────────────────────────────
     private val _apps = MutableStateFlow<List<AppInfo>>(emptyList())
@@ -607,88 +343,96 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private var weatherJob: Job? = null
 
-        // CORREGIDO: Usamos 'application' en lugar de 'context'
-        private val sharedPrefs = application.getSharedPreferences("weather_cache", Context.MODE_PRIVATE)
-        private val gson = Gson()
+    fun fetchWeather(lat: Double, lon: Double, metric: Boolean) {
+        weatherJob?.cancel()
+        weatherJob = viewModelScope.launch {
+            try {
+                val resp = WeatherApi.service.getForecast(lat, lon, temperatureUnit = "celsius")
+                val daily = resp.dailyData
+                val currentData = resp.currentData
 
-        fun fetchWeather(lat: Double, lon: Double, metric: Boolean) {
-            weatherJob?.cancel()
-            weatherJob = viewModelScope.launch {
-                try {
-                    val resp = WeatherApi.service.getForecast(lat, lon, temperatureUnit = "celsius")
-                    val daily = resp.dailyData
-                    val current = resp.currentWeather
+                val temp = currentData?.temperature
+                val windSpd = currentData?.windspeed
+                val windDir = currentData?.winddirection
+                val wCode = currentData?.weathercode
 
-                    val locationName = try {
+                val locationName = try {
+                    var name: String? = null
+                    try {
+                        val nomResp = NominatimApi.service.reverseGeocode(lat, lon)
+                        name = nomResp.address?.getCityOrTown() ?: nomResp.name
+                    } catch (_: Exception) {}
+
+                    if (name.isNullOrEmpty()) {
                         val geocoder = Geocoder(getApplication(), Locale.getDefault())
                         val addresses = withContext(Dispatchers.IO) {
                             @Suppress("DEPRECATION")
                             geocoder.getFromLocation(lat, lon, 1)
                         }
                         addresses?.firstOrNull()?.let { addr ->
-                            val raw = addr.locality ?: addr.subLocality ?: addr.subAdminArea ?: addr.adminArea
-                            raw?.replace(Regex("(?i)\\b(county|district|province|municipality|city|town)\\b"), "")
-                               ?.replace(Regex("[0-9]+"), "")
-                               ?.trim()
-                               ?.takeIf { it.isNotEmpty() }
-                               ?: addr.locality
+                            name = addr.locality ?: addr.subLocality
                         }
-                    } catch (_: Exception) { null }
-
-                    if (daily != null) {
-                        val daysList = daily.dates.mapIndexed { index, date ->
-                            com.openlauncher.app.model.DailyForecast(
-                                date = date,
-                                maxTemperatureCelsius = daily.maxTemperatures.getOrNull(index) ?: 0.0,
-                                minTemperatureCelsius = daily.minTemperatures.getOrNull(index) ?: 0.0,
-                                weatherCode = daily.weatherCodes.getOrNull(index) ?: 0
-                            )
-                        }
-
-                        val today = daysList.firstOrNull()
-
-                        val nuevoEstado = WeatherState(
-                            currentTemperature = current?.temperature,
-                            windSpeed = current?.windspeed,
-                            windDirection = current?.winddirection,
-                            weatherCode = current?.weathercode,
-                            maxTemperatureToday = today?.maxTemperatureCelsius,
-                            minTemperatureToday = today?.minTemperatureCelsius,
-                            locationName = locationName,
-                            forecastDays = daysList,
-                            isLoading = false,
-                            error = null
-                        )
-
-                        withContext(Dispatchers.IO) {
-                            val json = gson.toJson(nuevoEstado)
-                            sharedPrefs.edit().putString("cached_state", json).apply()
-                        }
-
-                        _weather.value = nuevoEstado
-                        _weatherError.value = null
                     }
-                } catch (e: Exception) {
-                    val jsonGuardado = sharedPrefs.getString("cached_state", null)
-                    if (!jsonGuardado.isNullOrEmpty()) {
-                        val estadoRecuperado = gson.fromJson(jsonGuardado, WeatherState::class.java) as WeatherState
-                        _weather.value = WeatherState(
-                            currentTemperature = estadoRecuperado.currentTemperature,
-                            windSpeed = estadoRecuperado.windSpeed,
-                            windDirection = estadoRecuperado.windDirection,
-                            weatherCode = estadoRecuperado.weatherCode,
-                            maxTemperatureToday = estadoRecuperado.maxTemperatureToday,
-                            minTemperatureToday = estadoRecuperado.minTemperatureToday,
-                            locationName = estadoRecuperado.locationName,
-                            forecastDays = estadoRecuperado.forecastDays,
-                            isLoading = false,
-                            error = null
+
+                    name?.replace(Regex("(?i)\\b(county|district|province|municipality|city|town)\\b"), "")
+                       ?.replace(Regex("[0-9]+"), "")
+                       ?.trim()
+                       ?.takeIf { it.isNotEmpty() }
+                } catch (_: Exception) { null }
+
+                if (daily != null) {
+                    val daysList = daily.dates.mapIndexed { index, date ->
+                        DailyForecast(
+                            date = date,
+                            maxTemperatureCelsius = daily.maxTemperatures.getOrNull(index) ?: 0.0,
+                            minTemperatureCelsius = daily.minTemperatures.getOrNull(index) ?: 0.0,
+                            weatherCode = daily.weatherCodes.getOrNull(index) ?: 0
                         )
-                        _weatherError.value = null
-                    } else {
-                        _weatherError.value = e.message
                     }
+
+                    val today = daysList.firstOrNull()
+                    val sunriseTime = daily.sunrises?.firstOrNull()?.let { formatIsoTime(it) }
+                    val sunsetTime = daily.sunsets?.firstOrNull()?.let { formatIsoTime(it) }
+                    val precip = currentData?.precipitation ?: daily.precipitationSums?.firstOrNull()
+
+                    val nuevoEstado = WeatherState(
+                        currentTemperature = temp,
+                        windSpeed = windSpd,
+                        windDirection = windDir,
+                        weatherCode = wCode,
+                        maxTemperatureToday = today?.maxTemperatureCelsius,
+                        minTemperatureToday = today?.minTemperatureCelsius,
+                        precipitationMm = precip,
+                        precipitationProbability = daily.precipitationProbabilities?.firstOrNull(),
+                        sunriseTime = sunriseTime,
+                        sunsetTime = sunsetTime,
+                        locationName = locationName,
+                        forecastDays = daysList,
+                        isLoading = false,
+                        error = null
+                    )
+
+                    _weather.value = nuevoEstado
+                    _weatherError.value = null
                 }
+            } catch (e: Exception) {
+                _weatherError.value = e.message
+            }
+        }
+    }
+
+        private fun formatIsoTime(isoStr: String): String {
+            return try {
+                if (isoStr.contains("T")) {
+                    isoStr.substringAfter("T").take(5)
+                } else isoStr.takeLast(5)
+            } catch (_: Exception) { isoStr }
+        }
+
+        fun refreshWeatherManually() {
+            val loc = locationMgr.location.value
+            if (loc != null) {
+                fetchWeather(loc.latitude, loc.longitude, settings.value.unitSystem.name == "METRIC")
             }
         }
 

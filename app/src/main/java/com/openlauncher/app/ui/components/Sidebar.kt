@@ -113,7 +113,6 @@ private val SHORTCUT_SLOT_SIZE = 48.dp
 
 @Composable
 fun Sidebar(
-    currentDest: NavDestination,
     settings: AppSettings,
     installedIconFor: (String) -> Drawable?,
     onNavigate: (NavDestination) -> Unit,
@@ -122,12 +121,11 @@ fun Sidebar(
     onShortcutRemove: (Int) -> Unit,
     onShortcutSetIcon: (Int, DefaultShortcutIcon?) -> Unit,
     onReorder: (from: Int, to: Int) -> Unit,
+    modifier: Modifier = Modifier,
     wifiLevel: Int = -1,
     mobileLevel: Int = -1,
     satelliteCount: Int = 0,
-    isHorizontal: Boolean = false,
-    onMicClick: () -> Unit = {},
-    modifier: Modifier = Modifier
+    isHorizontal: Boolean = false
 ) {
     val isDayMode    = LocalDayMode.current
     val accent       = Color(settings.accentColor)
@@ -175,7 +173,7 @@ fun Sidebar(
                     4 -> Icons.Filled.Wifi
                     else -> Icons.Filled.SignalWifi0Bar
                 }
-                Icon(wifiIcon, contentDescription = "Wi-Fi", tint = statusIconColor, modifier = Modifier.size(28.dp))
+                Icon(wifiIcon, contentDescription = "Wi-Fi", tint = statusIconColor, modifier = Modifier.size(24.dp))
             }
 
             // 2nd Row: Mobile Strength Icon
@@ -187,11 +185,11 @@ fun Sidebar(
                     4 -> Icons.Filled.SignalCellular4Bar
                     else -> Icons.Filled.SignalCellular0Bar
                 }
-                Icon(mobileIcon, contentDescription = "Mobile Signal", tint = statusIconColor, modifier = Modifier.size(28.dp))
+                Icon(mobileIcon, contentDescription = "Mobile Signal", tint = statusIconColor, modifier = Modifier.size(24.dp))
             }
 
             // 3rd Row: Bluetooth Icon
-            Icon(Icons.Default.Bluetooth, contentDescription = "Bluetooth", tint = statusIconColor, modifier = Modifier.size(28.dp))
+            Icon(Icons.Default.Bluetooth, contentDescription = "Bluetooth", tint = statusIconColor, modifier = Modifier.size(24.dp))
 
             // 4th Row: Satellite Icon & Number of Satellites Connected
             Column(
@@ -202,7 +200,7 @@ fun Sidebar(
                     imageVector = Icons.Default.SatelliteAlt,
                     contentDescription = "Satellites",
                     tint = statusIconColor,
-                    modifier = Modifier.size(28.dp)
+                    modifier = Modifier.size(22.dp)
                 )
                 Text(
                     text = "$satelliteCount",

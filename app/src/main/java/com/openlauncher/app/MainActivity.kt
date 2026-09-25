@@ -1,6 +1,5 @@
 package com.openlauncher.app
 
-import android.Manifest
 import android.content.Intent
 import android.graphics.drawable.Drawable
 import android.os.Bundle
@@ -58,15 +57,6 @@ class MainActivity : ComponentActivity() {
 
     private val vm: LauncherViewModel by viewModels()
 
-    private val locationPermissions = registerForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
-    ) { granted ->
-        if (granted[Manifest.permission.ACCESS_FINE_LOCATION] == true ||
-            granted[Manifest.permission.ACCESS_COARSE_LOCATION] == true) {
-            vm.startLocationUpdates()
-        }
-    }
-
     private fun hideSystemBars() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         WindowCompat.getInsetsController(window, window.decorView).apply {
@@ -84,10 +74,8 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         // Reset to home screen when the HOME button is pressed
         vm.navigate(NavDestination.HOME)
-        vm.exitRearrangeMode()
-        vm.setWidgetLibraryOpen(false)
         vm.cancelShortcutPicker()
-        vm.cancelCarPlayPicker()
+        vm.cancelPicker()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -177,7 +165,6 @@ class MainActivity : ComponentActivity() {
                         appPickerTarget = appPickerTarget,
                         accent = accent,
                         bg = bg,
-                        bgBrush = bgBrush,
                         vm = vm
                     )
                 }
@@ -260,7 +247,6 @@ private fun MainContentShell(
     appPickerTarget: LauncherViewModel.AppPickerTarget?,
     accent: Color,
     bg: Color,
-    bgBrush: Brush?,
     vm: LauncherViewModel
 ) {
     val context = LocalContext.current
@@ -285,13 +271,11 @@ private fun MainContentShell(
                 )
                 CompositionLocalProvider(LocalDensity provides sidebarDensity) {
                     Sidebar(
-                        currentDest   = nav,
                         settings      = settings,
                         installedIconFor = { pkg -> appIconMap[pkg] },
                         onNavigate    = { dest ->
                             vm.cancelShortcutPicker()
-                            vm.cancelCarPlayPicker()
-                            vm.exitRearrangeMode()
+                            vm.cancelPicker()
                             vm.navigate(dest)
                         },
                         onShortcutClick = { slot ->
@@ -324,6 +308,7 @@ private fun MainContentShell(
                             if (!pkg.isNullOrEmpty()) vm.launchApp(pkg)
                             vm.playLastOrOpenActive(context)
                         },
+                        onTapWeather        = { vm.refreshWeatherManually() },
                         isOverlayOpen       = nav != NavDestination.HOME,
                         modifier = Modifier.fillMaxSize()
                     )
@@ -341,13 +326,12 @@ private fun MainContentShell(
                             pickerSlot          = pickerSlot,
                             isCarPlayPickerMode = appPickerTarget != null,
                             carPlayPickerLabel  = when (appPickerTarget) {
-                                LauncherViewModel.AppPickerTarget.ANDROID_AUTO -> "CHOOSE ANDROID AUTO APP"
                                 LauncherViewModel.AppPickerTarget.PIP          -> "CHOOSE PIP APP"
                                 LauncherViewModel.AppPickerTarget.AUTOSTART_1 -> "CHOOSE AUTOSTART APP 1"
                                 LauncherViewModel.AppPickerTarget.AUTOSTART_2 -> "CHOOSE AUTOSTART APP 2"
                                 LauncherViewModel.AppPickerTarget.AUTOSTART_3 -> "CHOOSE AUTOSTART APP 3"
                                 LauncherViewModel.AppPickerTarget.AUTOSTART_4 -> "CHOOSE AUTOSTART APP 4"
-                                else -> "CHOOSE CARPLAY APP"
+                                else -> "CHOOSE APP"
                             },
                             accent              = accent,
                             onAppClick          = { app -> vm.launchApp(app.packageName) },

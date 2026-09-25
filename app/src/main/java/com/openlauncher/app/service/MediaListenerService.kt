@@ -104,9 +104,17 @@ class MediaListenerService : NotificationListenerService() {
         if (controller == null) { _nowPlaying.value = null; return }
         lastMediaPackage = controller.packageName
         val meta = controller.metadata
-        val title = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
+
+        val appName = try {
+            val pm = packageManager
+            val ai = pm.getApplicationInfo(controller.packageName, 0)
+            pm.getApplicationLabel(ai).toString()
+        } catch (_: Exception) { "Online Radio" }
+
+        val rawTitle = meta?.getString(MediaMetadata.METADATA_KEY_TITLE)
             ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE)
-            ?: "Unknown"
+        val title = if (!rawTitle.isNullOrBlank() && rawTitle != "Unknown") rawTitle else appName
+
         val artist = meta?.getString(MediaMetadata.METADATA_KEY_ARTIST)
             ?: meta?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
             ?: meta?.getString(MediaMetadata.METADATA_KEY_DISPLAY_SUBTITLE)
