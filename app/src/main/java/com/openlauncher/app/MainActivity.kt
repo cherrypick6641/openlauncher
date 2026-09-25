@@ -5,7 +5,6 @@ import android.graphics.drawable.Drawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -28,7 +27,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -39,7 +37,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.data.DayNightMode
-import com.openlauncher.app.data.GradientDirection
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
@@ -113,23 +110,9 @@ class MainActivity : ComponentActivity() {
                 onPlayMedia = { vm.playLastOrOpenActive(this@MainActivity) }
             )
 
-            val accent         = Color(settings.accentColor)
-            val bg             = if (settings.useCustomBackgroundColor) {
-                Color(settings.backgroundColor)
-            } else {
-                if (isDayMode) Color(0xFFEEEEEE) else Color.Black
-            }
-            val textColor      = if (isDayMode) Color(0xFF111111) else Color(settings.fontColor)
-            val bgGradientEnd  = Color(settings.gradientEndColor)
-            val bgBrush        = if (settings.useCustomBackgroundColor && settings.useGradient) {
-                val colors = listOf(bg, bgGradientEnd)
-                when (settings.gradientDirection) {
-                    GradientDirection.TOP_TO_BOTTOM -> Brush.verticalGradient(colors)
-                    GradientDirection.LEFT_TO_RIGHT -> Brush.horizontalGradient(colors)
-                    GradientDirection.DIAGONAL -> Brush.linearGradient(colors)
-                    GradientDirection.RADIAL -> Brush.radialGradient(colors)
-                }
-            } else null
+            val accent    = Color(settings.accentColor)
+            val bg        = if (isDayMode) Color(0xFFEEEEEE) else Color.Black
+            val textColor = if (isDayMode) Color(0xFF111111) else Color(settings.fontColor)
 
             val baseDensity = LocalDensity.current
             CompositionLocalProvider(
