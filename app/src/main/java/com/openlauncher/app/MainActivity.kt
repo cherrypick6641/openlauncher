@@ -97,6 +97,8 @@ class MainActivity : ComponentActivity() {
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
 
+            val isConnected by vm.isConnected.collectAsStateWithLifecycle()
+
             AppAutostartHandler(
                 settingsLoaded = settingsLoaded,
                 autostartPackages = settings.autostartPackages,
@@ -107,6 +109,7 @@ class MainActivity : ComponentActivity() {
             AppMediaBootHandler(
                 settingsLoaded = settingsLoaded,
                 playMediaOnBoot = settings.playMediaOnBoot,
+                isConnected = isConnected,
                 onPlayMedia = { vm.playLastOrOpenActive(this@MainActivity) }
             )
 
@@ -201,12 +204,13 @@ private fun AppAutostartHandler(
 private fun AppMediaBootHandler(
     settingsLoaded: Boolean,
     playMediaOnBoot: Boolean,
+    isConnected: Boolean,
     onPlayMedia: () -> Unit
 ) {
     var mediaPlayed by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(settingsLoaded) {
-        if (settingsLoaded && playMediaOnBoot && !mediaPlayed) {
-            delay(1000)
+    LaunchedEffect(settingsLoaded, playMediaOnBoot, isConnected) {
+        if (settingsLoaded && playMediaOnBoot && isConnected && !mediaPlayed) {
+            delay(500)
             onPlayMedia()
             mediaPlayed = true
         }

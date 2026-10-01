@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.location.Geocoder
 import android.net.ConnectivityManager
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.wifi.WifiManager
 import android.os.Build
@@ -343,6 +344,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private var weatherJob: Job? = null
 
+    private var lastWeatherFetchMs: Long = 0L
+
     fun fetchWeather(lat: Double, lon: Double, metric: Boolean) {
         weatherJob?.cancel()
         weatherJob = viewModelScope.launch {
@@ -412,6 +415,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
                         error = null
                     )
 
+                    lastWeatherFetchMs = System.currentTimeMillis()
                     _weather.value = nuevoEstado
                     _weatherError.value = null
                 }
@@ -534,6 +538,27 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
     }
 
+    private fun startNetworkCallback() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            try {
+                cm.registerDefaultNetworkCallback(object : ConnectivityManager.NetworkCallback() {
+                    override fun onAvailable(network: Network) {
+                        refreshConnectivity()
+                        val loc = locationMgr.location.value
+                        if (loc != null && (_weather.value?.currentTemperature == null || System.currentTimeMillis() - lastWeatherFetchMs >= 30 * 60 * 1000L)) {
+                            fetchWeather(loc.latitude, loc.longitude, settings.value.unitSystem.name == "METRIC")
+                        }
+                    }
+
+                    override fun onLost(network: Network) {
+                        refreshConnectivity()
+                    }
+                })
+            } catch (_: Exception) {}
+        }
+    }
+
     init {
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_PACKAGE_ADDED)
@@ -546,17 +571,16 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         loadInstalledApps()
         refreshConnectivity()
         startSignalListeners()
-        // Fetch weather on first location fix, then every 30 minutes.
-        // The minute ticker covers the parked case where no location updates arrive.
+        startNetworkCallback()
+
+        // Fetch weather on location fix when connected to network, then every 30 minutes.
         viewModelScope.launch {
-            var lastFetchMs = 0L
             merge(
                 locationMgr.location.filterNotNull(),
                 minuteTicker.mapNotNull { locationMgr.location.value }
             ).collect { loc ->
                 val now = System.currentTimeMillis()
-                if (now - lastFetchMs >= 30 * 60 * 1_000L) {
-                    lastFetchMs = now
+                if (_isConnected.value && (now - lastWeatherFetchMs >= 30 * 60 * 1_000L || _weather.value?.currentTemperature == null)) {
                     fetchWeather(loc.latitude, loc.longitude, settings.value.unitSystem.name == "METRIC")
                 }
             }
