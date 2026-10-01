@@ -33,7 +33,8 @@ android {
             signingConfig = signingConfigs.getByName("aosp")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("aosp")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
