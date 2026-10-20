@@ -1,8 +1,11 @@
 package com.openlauncher.app.ui.screen
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.role.RoleManager
+import android.bluetooth.BluetoothAdapter
 import android.content.Context
+import kotlin.math.roundToInt
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.LocationManager
@@ -45,6 +48,9 @@ import androidx.compose.material.icons.filled.FormatSize
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.LightMode
+import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.DirectionsCar
+import androidx.compose.material.icons.filled.FilterAlt
 import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MusicNote
@@ -58,10 +64,14 @@ import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.TextFields
+import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Water
 import androidx.compose.material.icons.filled.ZoomIn
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -512,6 +522,134 @@ fun SettingsScreen(
                     colors        = sliderColors(accent),
                     modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
                 )
+            }
+        }
+
+        // ── OBD2 / Vehicle Monitoring ─────────────────────────────────────────
+        SettingsSection("OBD2 / Vehicle Monitoring") {
+            SettingsRow(
+                label    = "Enable OBD2 Connection",
+                sublabel = "Auto-connect to ELM327 / Vlink via Bluetooth",
+                icon     = Icons.Default.DirectionsCar
+            ) {
+                Switch(
+                    checked         = settings.obdEnabled,
+                    onCheckedChange = { onUpdate { copy(obdEnabled = it) } },
+                    colors          = switchColors(accent)
+                )
+            }
+
+            if (settings.obdEnabled) {
+                SettingsDivider()
+
+                val bluetoothAdapter = remember { BluetoothAdapter.getDefaultAdapter() }
+                @SuppressLint("MissingPermission")
+                val pairedDevices = remember(bluetoothAdapter) {
+                    try {
+                        bluetoothAdapter?.bondedDevices?.toList() ?: emptyList()
+                    } catch (_: Exception) { emptyList() }
+                }
+
+                SettingsRow(
+                    label    = "Vlink Bluetooth Device",
+                    sublabel = settings.obdDeviceName.ifEmpty { settings.obdDeviceAddress.ifEmpty { "Select Paired Device" } },
+                    icon     = Icons.Default.Bluetooth
+                ) {
+                    var expanded by remember { mutableStateOf(false) }
+                    Box {
+                        FilterChip(
+                            selected = true,
+                            onClick  = { expanded = true },
+                            label    = { Text(settings.obdDeviceName.ifEmpty { "SELECT" }, fontSize = 10.sp) },
+                            colors   = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = accent,
+                                selectedLabelColor = Color.Black
+                            )
+                        )
+                        DropdownMenu(
+                            expanded  = expanded,
+                            onDismissRequest = { expanded = false }
+                        ) {
+                            if (pairedDevices.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text("No paired Bluetooth devices", fontSize = 11.sp) },
+                                    onClick = { expanded = false }
+                                )
+                            } else {
+                                pairedDevices.forEach { device ->
+                                    @SuppressLint("MissingPermission")
+                                    val name = device.name ?: "Unknown Device"
+                                    val addr = device.address
+                                    DropdownMenuItem(
+                                        text = { Text("$name ($addr)", fontSize = 11.sp) },
+                                        onClick = {
+                                            onUpdate { copy(obdDeviceAddress = addr, obdDeviceName = name) }
+                                            expanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                SettingsDivider()
+
+                Column {
+                    SettingsRow(
+                        label    = "OBD Bar Width",
+                        sublabel = "${settings.obdRightBarWidthDp} dp",
+                        icon     = Icons.Default.FormatAlignRight
+                    ) {}
+                    Slider(
+                        value         = settings.obdRightBarWidthDp.toFloat(),
+                        onValueChange = { onUpdate { copy(obdRightBarWidthDp = it.roundToInt()) } },
+                        valueRange    = 60f..120f,
+                        steps         = 5,
+                        colors        = sliderColors(accent),
+                        modifier      = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show DPF Temp Before DPF", sublabel = "Highlight accent color when > 500°C", icon = Icons.Default.Thermostat) {
+                    Switch(
+                        checked         = settings.showDpfTemp,
+                        onCheckedChange = { onUpdate { copy(showDpfTemp = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show Soot Level", sublabel = "DPF soot accumulation %", icon = Icons.Default.FilterAlt) {
+                    Switch(
+                        checked         = settings.showSootLevel,
+                        onCheckedChange = { onUpdate { copy(showSootLevel = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show Distance Since Last Clean", sublabel = "Distance in km since DPF regen", icon = Icons.Default.DirectionsCar) {
+                    Switch(
+                        checked         = settings.showLastRegenDist,
+                        onCheckedChange = { onUpdate { copy(showLastRegenDist = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show Engine Coolant Temp", sublabel = "Engine coolant temperature in °C", icon = Icons.Default.Water) {
+                    Switch(
+                        checked         = settings.showCoolantTemp,
+                        onCheckedChange = { onUpdate { copy(showCoolantTemp = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
             }
         }
 

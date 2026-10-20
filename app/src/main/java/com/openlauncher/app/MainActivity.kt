@@ -40,6 +40,7 @@ import com.openlauncher.app.data.DayNightMode
 import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
+import com.openlauncher.app.model.ObdState
 import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.ui.components.Sidebar
 import com.openlauncher.app.ui.screen.AppLibraryScreen
@@ -96,6 +97,7 @@ class MainActivity : ComponentActivity() {
             val isDayMode = if (settings.dayNightMode == DayNightMode.SYSTEM) !systemIsDark else isDayModeVM
             val pickerSlot      by vm.shortcutPickerSlot.collectAsStateWithLifecycle()
             val appPickerTarget by vm.appPickerTarget.collectAsStateWithLifecycle()
+            val obdState        by vm.obdState.collectAsStateWithLifecycle()
 
             val isConnected by vm.isConnected.collectAsStateWithLifecycle()
 
@@ -149,6 +151,7 @@ class MainActivity : ComponentActivity() {
                         appIconMap = appIconMap,
                         pickerSlot = pickerSlot,
                         appPickerTarget = appPickerTarget,
+                        obdState = obdState,
                         accent = accent,
                         bg = bg,
                         vm = vm
@@ -232,6 +235,7 @@ private fun MainContentShell(
     appIconMap: Map<String, Drawable>,
     pickerSlot: Int?,
     appPickerTarget: LauncherViewModel.AppPickerTarget?,
+    obdState: ObdState = ObdState(),
     accent: Color,
     bg: Color,
     vm: LauncherViewModel
@@ -288,6 +292,7 @@ private fun MainContentShell(
                         settings            = settings,
                         weather             = weather,
                         nowPlaying          = nowPlaying,
+                        obdState            = obdState,
                         isDayMode           = isDayMode,
                         onPlayPause         = { vm.playPause(context) },
                         onTapNowPlaying     = {

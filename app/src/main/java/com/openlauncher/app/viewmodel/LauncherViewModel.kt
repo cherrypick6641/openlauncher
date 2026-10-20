@@ -29,10 +29,12 @@ import com.openlauncher.app.model.AppInfo
 import com.openlauncher.app.model.DailyForecast
 import com.openlauncher.app.model.NavDestination
 import com.openlauncher.app.model.NowPlayingState
+import com.openlauncher.app.model.ObdState
 import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.service.MediaListenerService
 import com.openlauncher.app.util.LocationCompassManager
 import com.openlauncher.app.util.LocationData
+import com.openlauncher.app.util.ObdManager
 import com.openlauncher.app.util.SunriseSunset
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -59,6 +61,9 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
 
     private val settingsRepo = SettingsRepository(application)
     private val locationMgr  = LocationCompassManager(application)
+    private val obdMgr       = ObdManager(application)
+
+    val obdState: StateFlow<ObdState> = obdMgr.obdState
     
     // Android AppWidget Support
     val appWidgetHost = AppWidgetHost(application, APPWIDGET_HOST_ID)
@@ -535,6 +540,7 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         super.onCleared()
         getApplication<Application>().unregisterReceiver(packageReceiver)
         locationMgr.stop()
+        obdMgr.stop()
         telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
     }
 
@@ -572,6 +578,17 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
         refreshConnectivity()
         startSignalListeners()
         startNetworkCallback()
+
+        // Start / Stop OBD Manager based on settings
+        viewModelScope.launch {
+            settings.collect { s ->
+                if (s.obdEnabled && s.obdDeviceAddress.isNotEmpty()) {
+                    obdMgr.start(s.obdDeviceAddress)
+                } else {
+                    obdMgr.stop()
+                }
+            }
+        }
 
         // Fetch weather on location fix when connected to network, then every 30 minutes.
         viewModelScope.launch {

@@ -74,6 +74,14 @@ class SettingsRepository(private val context: Context) {
         val SIDEBAR_WIDTH_DP     = intPreferencesKey("sidebar_width_dp")
         val BOTTOM_BAR_HEIGHT_DP = intPreferencesKey("bottom_bar_height_dp")
         val PLAY_MEDIA_ON_BOOT   = booleanPreferencesKey("play_media_on_boot")
+        val OBD_ENABLED          = booleanPreferencesKey("obd_enabled")
+        val OBD_DEVICE_ADDRESS   = stringPreferencesKey("obd_device_address")
+        val OBD_DEVICE_NAME      = stringPreferencesKey("obd_device_name")
+        val OBD_RIGHT_BAR_WIDTH_DP = intPreferencesKey("obd_right_bar_width_dp")
+        val SHOW_SOOT_LEVEL      = booleanPreferencesKey("show_soot_level")
+        val SHOW_DPF_TEMP        = booleanPreferencesKey("show_dpf_temp")
+        val SHOW_LAST_REGEN_DIST = booleanPreferencesKey("show_last_regen_dist")
+        val SHOW_COOLANT_TEMP    = booleanPreferencesKey("show_coolant_temp")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -160,7 +168,15 @@ class SettingsRepository(private val context: Context) {
                 autostartDelay = prefs[Keys.AUTOSTART_DELAY] ?: defaults.autostartDelay,
                 sidebarWidthDp    = prefs[Keys.SIDEBAR_WIDTH_DP]    ?: defaults.sidebarWidthDp,
                 bottomBarHeightDp = prefs[Keys.BOTTOM_BAR_HEIGHT_DP] ?: defaults.bottomBarHeightDp,
-                playMediaOnBoot   = prefs[Keys.PLAY_MEDIA_ON_BOOT]   ?: defaults.playMediaOnBoot
+                playMediaOnBoot   = prefs[Keys.PLAY_MEDIA_ON_BOOT]   ?: defaults.playMediaOnBoot,
+                obdEnabled        = prefs[Keys.OBD_ENABLED]          ?: defaults.obdEnabled,
+                obdDeviceAddress   = prefs[Keys.OBD_DEVICE_ADDRESS]   ?: defaults.obdDeviceAddress,
+                obdDeviceName      = prefs[Keys.OBD_DEVICE_NAME]      ?: defaults.obdDeviceName,
+                obdRightBarWidthDp = prefs[Keys.OBD_RIGHT_BAR_WIDTH_DP] ?: defaults.obdRightBarWidthDp,
+                showSootLevel      = prefs[Keys.SHOW_SOOT_LEVEL]      ?: defaults.showSootLevel,
+                showDpfTemp        = prefs[Keys.SHOW_DPF_TEMP]        ?: defaults.showDpfTemp,
+                showLastRegenDist = prefs[Keys.SHOW_LAST_REGEN_DIST] ?: defaults.showLastRegenDist,
+                showCoolantTemp    = prefs[Keys.SHOW_COOLANT_TEMP]    ?: defaults.showCoolantTemp
             )
     }
 
@@ -225,6 +241,14 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SIDEBAR_WIDTH_DP]     = s.sidebarWidthDp
             prefs[Keys.BOTTOM_BAR_HEIGHT_DP] = s.bottomBarHeightDp
             prefs[Keys.PLAY_MEDIA_ON_BOOT]   = s.playMediaOnBoot
+            prefs[Keys.OBD_ENABLED]          = s.obdEnabled
+            prefs[Keys.OBD_DEVICE_ADDRESS]   = s.obdDeviceAddress
+            prefs[Keys.OBD_DEVICE_NAME]      = s.obdDeviceName
+            prefs[Keys.OBD_RIGHT_BAR_WIDTH_DP] = s.obdRightBarWidthDp
+            prefs[Keys.SHOW_SOOT_LEVEL]      = s.showSootLevel
+            prefs[Keys.SHOW_DPF_TEMP]        = s.showDpfTemp
+            prefs[Keys.SHOW_LAST_REGEN_DIST] = s.showLastRegenDist
+            prefs[Keys.SHOW_COOLANT_TEMP]    = s.showCoolantTemp
     }
 
     suspend fun resetToDefaults() {

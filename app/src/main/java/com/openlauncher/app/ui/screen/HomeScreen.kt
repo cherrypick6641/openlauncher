@@ -53,8 +53,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.openlauncher.app.data.AppSettings
 import com.openlauncher.app.model.NowPlayingState
+import com.openlauncher.app.model.ObdState
 import com.openlauncher.app.model.WeatherState
 import com.openlauncher.app.model.windDirectionToCardinal
+import com.openlauncher.app.ui.components.ObdRightBar
 import com.openlauncher.app.ui.widget.PipWidget
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
@@ -67,6 +69,7 @@ fun HomeScreen(
     settings: AppSettings,
     weather: WeatherState?,
     nowPlaying: NowPlayingState?,
+    obdState: ObdState = ObdState(),
     isDayMode: Boolean = false,
     onPlayPause: () -> Unit,
     onTapNowPlaying: () -> Unit,
@@ -77,25 +80,39 @@ fun HomeScreen(
     val bottomBarHeight = settings.bottomBarHeightDp.dp
 
     Column(modifier = modifier.fillMaxSize()) {
-        // ── Central Main Screen Area (PIP View) ──────────────────────────────────
-        Box(
+        // ── Central Main Screen Area (PIP View + Optional OBD Right Bar) ──────────
+        Row(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .padding(top = 6.dp, start = 6.dp, end = 6.dp, bottom = 4.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(if (isDayMode) Color(0xFFE8E8E8) else Color(0xFF101012))
-                .border(
-                    width = 1.dp,
-                    color = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF222224),
-                    shape = RoundedCornerShape(16.dp)
-                )
         ) {
-            PipWidget(
-                packageName = settings.pipAppPackage,
-                isOverlayOpen = isOverlayOpen,
-                modifier = Modifier.fillMaxSize()
-            )
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .padding(top = 6.dp, start = 6.dp, end = if (settings.obdEnabled) 2.dp else 6.dp, bottom = 4.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(if (isDayMode) Color(0xFFE8E8E8) else Color(0xFF101012))
+                    .border(
+                        width = 1.dp,
+                        color = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF222224),
+                        shape = RoundedCornerShape(16.dp)
+                    )
+            ) {
+                PipWidget(
+                    packageName = settings.pipAppPackage,
+                    isOverlayOpen = isOverlayOpen,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            if (settings.obdEnabled) {
+                ObdRightBar(
+                    settings = settings,
+                    obdState = obdState,
+                    isDayMode = isDayMode
+                )
+            }
         }
 
         // ── Bottom Bar ──────────────────────────────────────────────────────────

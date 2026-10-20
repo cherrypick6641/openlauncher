@@ -1,0 +1,16 @@
+package com.openlauncher.app.model
+
+data class ObdState(
+    val isConnected: Boolean = false,
+    val isConnecting: Boolean = false,
+    val sootGrams: Double? = null,
+    val sootLevelPercent: Double? = null,
+    val dpfTemperatureCelsius: Double? = null,
+    val distanceSinceRegenKm: Int? = null,
+    val coolantTemperatureCelsius: Double? = null,
+    val statusMessage: String? = null,
+    val lastUpdatedMs: Long = 0L
+) {
+    val isDpfRegenActive: Boolean
+        get() = (dpfTemperatureCelsius ?: 0.0) >= 500.0
+}
