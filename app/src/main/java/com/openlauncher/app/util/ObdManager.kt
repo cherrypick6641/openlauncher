@@ -56,12 +56,23 @@ class ObdManager(private val context: Context) {
         }
 
         /**
+         * Standard OBD2 PID 0178: Exhaust Gas Temperature Bank 1 Sensor 2 (°C)
+         * Formula: ((A * 256) + B) / 10.0 - 40.0
+         */
+        fun parseExhaustGasTempResponse(response: String): Double? {
+            val bytes = extractHexBytes(response, "41 78") ?: extractHexBytes(response, "4178") ?: return null
+            if (bytes.size < 2) return null
+            val raw = (bytes[0] shl 8) or bytes[1]
+            val temp = (raw / 10.0) - 40.0
+            return temp.coerceIn(0.0, 1000.0)
+        }
+
+        /**
          * Parses DPF Temperature before DPF (°C).
          * Supports:
          * - Mode 22 PID 22 11 05 / 22 21 01 (Header "62 11 05" or "62 21 01")
          * - Mode 01 PID 01 78 (Exhaust Gas Temp, Header "41 78")
          * Formula: ((A * 256) + B) / 10.0 - 40.0
-         * Uses strict fixed byte offset rather than arbitrary range searching.
          */
         fun parseDpfTempResponse(response: String): Double? {
             // Check PID 221105
@@ -80,7 +91,7 @@ class ObdManager(private val context: Context) {
                 return temp.coerceIn(0.0, 1000.0)
             }
 
-            // Check PID 222101 / 221101 (DPF Temp is at fixed offset bytes [2] and [3] after header if present)
+            // Check PID 222101 / 221101
             bytes = extractHexBytes(response, "62 21 01") ?: extractHexBytes(response, "622101")
                 ?: extractHexBytes(response, "62 11 01") ?: extractHexBytes(response, "621101")
             if (bytes != null && bytes.size >= 4) {
@@ -95,17 +106,17 @@ class ObdManager(private val context: Context) {
         /**
          * Parses DPF Soot Accumulation (grams and percent) for Kia 1.6 CRDi EDC17 ECU.
          * Mode 22 PID 22 21 01 or 22 11 01.
-         * Reads soot mass from exact byte offset (index 0 for 221101, or index 1 for 222101).
+         * Reads soot mass from byte offset index 2, 1, or 0.
          * Calculates percentage based on realistic 18.0g 100% capacity threshold.
          * Returns Pair(grams, percent)
          */
         fun parseSootGramsAndPercent(response: String): Pair<Double, Double>? {
             val bytes = extractHexBytes(response, "62 11 01") ?: extractHexBytes(response, "621101")
                 ?: extractHexBytes(response, "62 21 01") ?: extractHexBytes(response, "622101")
+                ?: extractHexBytes(response, "62 11 05") ?: extractHexBytes(response, "621105")
                 ?: return null
             if (bytes.isEmpty()) return null
 
-            // Read soot value from offset index 2 (or index 1/0)
             val rawByte = bytes.getOrNull(2) ?: bytes.getOrNull(1) ?: bytes[0]
             val grams = rawByte.toDouble().coerceIn(0.0, 40.0)
             val percent = ((grams / DPF_MAX_SOOT_GRAMS) * 100.0).coerceIn(0.0, 100.0)
@@ -258,7 +269,9 @@ class ObdManager(private val context: Context) {
             delay(150)
             sendCmd("AT L0\r")          // Linefeeds Off
             delay(150)
-            sendCmd("AT H0\r")          // Headers OFF (Strips CAN ID 7E8 to keep byte offset indices stable)
+            sendCmd("AT H0\r")          // Headers OFF (Strips CAN ID 7E8)
+            delay(150)
+            sendCmd("AT CAF1\r")        // CAN Automatic Formatting ON (Mandatory for Mode 22 ISO-TP!)
             delay(150)
             sendCmd("AT SP 6\r")        // ISO 15765-4 CAN (11 bit ID, 500 kbaud)
             delay(150)
@@ -266,43 +279,57 @@ class ObdManager(private val context: Context) {
             delay(150)
             sendCmd("AT CRA 7E8\r")     // Receive CAN Header 7E8
             delay(150)
+            sendCmd("AT FC SH 7E0\r")   // Flow Control Header 7E0
+            delay(150)
+            sendCmd("AT FC SD 30 00 00\r") // Flow Control Data
+            delay(150)
+            sendCmd("AT FC SM 1\r")     // Flow Control Mode 1
+            delay(150)
 
-            FileLogger.log(context, "OBD: Connected & Initialized for Kia Ceed 1.6 CRDi!")
+            FileLogger.log(context, "OBD: Connected & CAN Flow Control initialized for Kia Ceed 1.6 CRDi!")
             _obdState.value = _obdState.value.copy(
                 isConnected = true,
                 isConnecting = false,
                 statusMessage = "CONNECTED"
             )
 
-            // Polling Loop with delay between queries to prevent ELM buffer overflow
+            // Polling Loop with delay between queries
             while (scope.isActive) {
                 // 1. Coolant Temp (0105)
                 val coolantResp = sendCmd("01 05\r")
                 delay(100)
                 val coolant = parseCoolantTempResponse(coolantResp)
 
-                // 2. Query Primary Hyundai/Kia Mode 22 PIDs
-                val resp221105 = sendCmd("22 11 05\r")
-                delay(100)
-
+                // 2. Query Primary Hyundai/Kia Mode 22 & OBD2 PIDs
                 val resp221101 = sendCmd("22 11 01\r")
                 delay(100)
-
+                val resp221105 = sendCmd("22 11 05\r")
+                delay(100)
                 val resp221102 = sendCmd("22 11 02\r")
+                delay(100)
+                val resp222101 = sendCmd("22 21 01\r")
+                delay(100)
+                val resp0178   = sendCmd("01 78\r")
                 delay(100)
 
                 // Parse DPF Temp
                 val dpfTemp = parseDpfTempResponse(resp221105)
                     ?: parseDpfTempResponse(resp221101)
+                    ?: parseDpfTempResponse(resp222101)
+                    ?: parseExhaustGasTempResponse(resp0178)
 
                 // Parse Soot Mass & Percent
                 val sootPair = parseSootGramsAndPercent(resp221101)
+                    ?: parseSootGramsAndPercent(resp222101)
+                    ?: parseSootGramsAndPercent(resp221105)
 
                 // Parse Distance Since Last Regen
                 val dist = parseDistanceResponse(resp221102)
                     ?: parseDistanceResponse(resp221101)
+                    ?: parseDistanceResponse(resp222101)
 
-                FileLogger.log(context, "OBD Stats -> Coolant:$coolant, DPF Temp:$dpfTemp, Soot:${sootPair?.first}g (${sootPair?.second}%), Dist:${dist}km")
+                val rawSummary = "221101:$resp221101 | 221105:$resp221105 | 0178:$resp0178"
+                FileLogger.log(context, "OBD Raw -> $rawSummary")
 
                 val updatedState = _obdState.value.copy(
                     isConnected = true,
@@ -313,6 +340,7 @@ class ObdManager(private val context: Context) {
                     sootLevelPercent = sootPair?.second ?: _obdState.value.sootLevelPercent,
                     distanceSinceRegenKm = dist ?: _obdState.value.distanceSinceRegenKm,
                     statusMessage = "CONNECTED",
+                    rawFrameDump = rawSummary,
                     lastUpdatedMs = System.currentTimeMillis()
                 )
                 _obdState.value = updatedState

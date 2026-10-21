@@ -9,6 +9,7 @@ data class ObdState(
     val distanceSinceRegenKm: Int? = null,
     val coolantTemperatureCelsius: Double? = null,
     val statusMessage: String? = null,
+    val rawFrameDump: String? = null,
     val lastUpdatedMs: Long = 0L
 ) {
     val isDpfRegenActive: Boolean
