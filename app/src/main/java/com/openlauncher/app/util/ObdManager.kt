@@ -33,7 +33,6 @@ class ObdManager(private val context: Context) {
 
     companion object {
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-        private const val RETRY_INTERVAL_MS = 120_000L // 2 minutes
 
         // ── Response Parsing Helpers (Tested via Unit Tests) ─────────────────
 
@@ -48,8 +47,20 @@ class ObdManager(private val context: Context) {
         }
 
         /**
+         * Standard OBD2 PID 0178: Exhaust Gas Temperature Bank 1 Sensor 2 (°C)
+         * Equation: ((A * 256) + B) / 10.0 - 40.0 or ((A * 256) + B) / 10.0
+         */
+        fun parseExhaustGasTempResponse(response: String): Double? {
+            val bytes = extractHexBytes(response, "41 78") ?: extractHexBytes(response, "4178") ?: return null
+            if (bytes.size < 2) return null
+            val raw = (bytes[0] shl 8) or bytes[1]
+            val temp = if (raw > 4000) (raw / 10.0) - 40.0 else raw / 10.0
+            return temp.coerceIn(0.0, 1000.0)
+        }
+
+        /**
          * Mode 22 PID 221105 or 221101: DPF Temperature Before DPF (°C)
-         * Equation: ((A * 256) + B) / 10.0 - 40.0  or  ((A * 256) + B) / 10.0
+         * Equation: ((A * 256) + B) / 10.0 - 40.0 or ((A * 256) + B) / 10.0
          */
         fun parseDpfTempResponse(response: String): Double? {
             val bytes = extractHexBytes(response, "62 11 05")
@@ -100,15 +111,25 @@ class ObdManager(private val context: Context) {
         }
 
         private fun extractHexBytes(rawResponse: String, header: String): List<Int>? {
-            val clean = rawResponse.replace(">", "").replace("\r", " ").replace("\n", " ").trim()
-            val headerClean = header.replace(" ", "")
+            val clean = rawResponse
+                .replace("SEARCHING...", "")
+                .replace("BUS INIT", "")
+                .replace("UNABLE TO CONNECT", "")
+                .replace("CAN ERROR", "")
+                .replace(">", "")
+                .replace("\r", " ")
+                .replace("\n", " ")
+                .uppercase()
+                .trim()
+
+            val headerClean = header.replace(" ", "").uppercase()
             val cleanNoSpaces = clean.replace(" ", "")
 
             val index = cleanNoSpaces.indexOf(headerClean)
             if (index < 0) return null
 
             val afterHeader = cleanNoSpaces.substring(index + headerClean.length)
-            val hexPairs = afterHeader.chunked(2).takeWhile { it.length == 2 && it.all { c -> c.isLetterOrDigit() } }
+            val hexPairs = afterHeader.chunked(2).takeWhile { it.length == 2 && it.all { c -> c in '0'..'9' || c in 'A'..'F' } }
             if (hexPairs.isEmpty()) return null
 
             return hexPairs.mapNotNull { it.toIntOrNull(16) }
@@ -123,9 +144,14 @@ class ObdManager(private val context: Context) {
         if (currentAddress == deviceAddress && workerJob?.isActive == true) return
 
         currentAddress = deviceAddress
+        reconnect()
+    }
+
+    fun reconnect() {
+        if (currentAddress.isEmpty()) return
         workerJob?.cancel()
         workerJob = scope.launch {
-            connectionLoop(deviceAddress)
+            connectionLoop(currentAddress)
         }
     }
 
@@ -138,6 +164,8 @@ class ObdManager(private val context: Context) {
     }
 
     private suspend fun connectionLoop(address: String) {
+        var consecutiveFailures = 0
+
         while (scope.isActive) {
             _obdState.value = _obdState.value.copy(
                 isConnecting = true,
@@ -148,14 +176,26 @@ class ObdManager(private val context: Context) {
             val success = connectAndPoll(address)
             disconnectSocket()
 
-            if (!success) {
+            if (success) {
+                consecutiveFailures = 0
+            } else {
+                consecutiveFailures++
                 _obdState.value = ObdState(
                     isConnected = false,
                     isConnecting = false,
                     statusMessage = "NO OBD CONNECTION"
                 )
-                FileLogger.log(context, "OBD: Connection failed/lost. Retrying in 2 minutes...")
-                delay(RETRY_INTERVAL_MS)
+
+                // Fast retry after engine cranking: 3s -> 5s -> 10s -> 2 minutes
+                val retryDelay = when (consecutiveFailures) {
+                    1 -> 3_000L
+                    2 -> 5_000L
+                    3 -> 10_000L
+                    else -> 120_000L
+                }
+
+                FileLogger.log(context, "OBD: Connection failed (attempt #$consecutiveFailures). Retrying in ${retryDelay / 1000}s...")
+                delay(retryDelay)
             }
         }
     }
@@ -177,16 +217,20 @@ class ObdManager(private val context: Context) {
 
             if (inputStream == null || outputStream == null) return@withContext false
 
-            // ELM327 Initialization Commands for Kia Ceed JD
-            sendCmd("AT Z\r")    // Reset
+            // ELM327 Initialization Commands for Kia Ceed JD 1.6 CRDi
+            sendCmd("AT Z\r")      // Reset ELM327
             delay(1000)
-            sendCmd("AT E0\r")   // Echo Off
+            sendCmd("AT E0\r")     // Echo Off
             delay(200)
-            sendCmd("AT L0\r")   // Linefeeds Off
+            sendCmd("AT L0\r")     // Linefeeds Off
             delay(200)
-            sendCmd("AT SP 6\r") // ISO 15765-4 CAN (11 bit ID, 500 kbaud) - Kia Ceed
+            sendCmd("AT H0\r")     // Headers Off for clean PID extraction
             delay(200)
-            sendCmd("AT SH 7E0\r") // Set Header 7E0
+            sendCmd("AT SP 6\r")   // ISO 15765-4 CAN (11 bit ID, 500 kbaud) - Kia Ceed
+            delay(200)
+            sendCmd("AT SH 7E0\r") // Set CAN Header to 7E0 (Engine Control Module)
+            delay(200)
+            sendCmd("AT CRA 7E8\r") // Set CAN Receive Address 7E8
             delay(200)
 
             FileLogger.log(context, "OBD: Connected & initialized successfully!")
@@ -202,9 +246,13 @@ class ObdManager(private val context: Context) {
                 val coolantResp = sendCmd("01 05\r")
                 val coolant = parseCoolantTempResponse(coolantResp)
 
-                // 2. DPF Temp Before DPF (221105 or 221101)
+                // 2. DPF Temp Before DPF (221105 or fallback 0178)
                 val dpfTempResp = sendCmd("22 11 05\r")
-                val dpfTemp = parseDpfTempResponse(dpfTempResp)
+                var dpfTemp = parseDpfTempResponse(dpfTempResp)
+                if (dpfTemp == null) {
+                    val egtResp = sendCmd("01 78\r")
+                    dpfTemp = parseExhaustGasTempResponse(egtResp) ?: parseDpfTempResponse(egtResp)
+                }
 
                 // 3. Soot Level & Grams (221101)
                 val sootResp = sendCmd("22 11 01\r")

@@ -74,6 +74,7 @@ fun HomeScreen(
     onPlayPause: () -> Unit,
     onTapNowPlaying: () -> Unit,
     onTapWeather: () -> Unit = {},
+    onReconnectObd: () -> Unit = {},
     isOverlayOpen: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -110,7 +111,8 @@ fun HomeScreen(
                 ObdRightBar(
                     settings = settings,
                     obdState = obdState,
-                    isDayMode = isDayMode
+                    isDayMode = isDayMode,
+                    onReconnect = onReconnectObd
                 )
             }
         }

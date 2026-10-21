@@ -301,6 +301,7 @@ private fun MainContentShell(
                             vm.playLastOrOpenActive(context)
                         },
                         onTapWeather        = { vm.refreshWeatherManually() },
+                        onReconnectObd      = { vm.reconnectObd() },
                         isOverlayOpen       = nav != NavDestination.HOME,
                         modifier = Modifier.fillMaxSize()
                     )

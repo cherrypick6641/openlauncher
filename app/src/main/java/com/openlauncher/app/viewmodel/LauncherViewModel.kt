@@ -64,6 +64,8 @@ class LauncherViewModel(application: Application) : AndroidViewModel(application
     private val obdMgr       = ObdManager(application)
 
     val obdState: StateFlow<ObdState> = obdMgr.obdState
+
+    fun reconnectObd() { obdMgr.reconnect() }
     
     // Android AppWidget Support
     val appWidgetHost = AppWidgetHost(application, APPWIDGET_HOST_ID)

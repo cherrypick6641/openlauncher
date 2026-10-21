@@ -2,6 +2,7 @@ package com.openlauncher.app.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,7 +41,8 @@ fun ObdRightBar(
     settings: AppSettings,
     obdState: ObdState,
     modifier: Modifier = Modifier,
-    isDayMode: Boolean = false
+    isDayMode: Boolean = false,
+    onReconnect: () -> Unit = {}
 ) {
     val barWidth = settings.obdRightBarWidthDp.dp
     val accent = Color(settings.accentColor)
@@ -67,7 +69,8 @@ fun ObdRightBar(
             // Disconnected / Connecting State
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
+                verticalArrangement = Arrangement.Center,
+                modifier = Modifier.clickable { onReconnect() }
             ) {
                 Icon(
                     imageVector = Icons.Default.BluetoothDisabled,
@@ -77,19 +80,28 @@ fun ObdRightBar(
                 )
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = if (obdState.isConnecting) "RETRYING..." else "NO OBD",
+                    text = if (obdState.isConnecting) "CONNECTING..." else "NO OBD",
                     color = warningColor,
                     fontWeight = FontWeight.Bold,
                     fontSize = 9.sp,
                     textAlign = TextAlign.Center
                 )
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = "VLINK",
-                    color = mutedColor,
-                    fontSize = 8.sp,
-                    textAlign = TextAlign.Center
-                )
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(accent)
+                        .clickable { onReconnect() }
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "RECONNECT",
+                        color = Color.Black,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 8.sp,
+                        textAlign = TextAlign.Center
+                    )
+                }
             }
         } else {
             // Connected Telemetry Stack
@@ -103,14 +115,13 @@ fun ObdRightBar(
                     val dpfTemp = obdState.dpfTemperatureCelsius
                     val dpfTempText = dpfTemp?.let { "${it.roundToInt()}°" } ?: "--°"
                     val dpfColor = if (isRegenActive) accent else textColor
-                    val dpfIconColor = if (isRegenActive) accent else mutedColor
 
                     ObdGaugeItem(
                         icon = Icons.Default.Thermostat,
                         valueText = dpfTempText,
                         label = if (isRegenActive) "REGEN!" else "DPF",
                         valueColor = dpfColor,
-                        iconColor = dpfIconColor
+                        iconColor = accent
                     )
                 }
 
