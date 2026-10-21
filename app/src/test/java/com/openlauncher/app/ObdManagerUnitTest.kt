@@ -18,17 +18,17 @@ class ObdManagerUnitTest {
 
     @Test
     fun testParseDpfTemperature() {
-        // Kia Ceed Mode 22 PID 221105 response: 62 11 05 01 F4 (0x01F4 = 500 -> 500 / 10 = 50.0°C)
-        val response1 = "62 11 05 01 F4 >"
+        // Kia Ceed Mode 22 PID 221105 response: 62 11 05 03 A8 (0x03A8 = 936 -> 93.6 - 40 = 53.6°C)
+        val response1 = "62 11 05 03 A8 >"
         val dpfTemp1 = ObdManager.parseDpfTempResponse(response1)
         assertNotNull(dpfTemp1)
-        assertEquals(50.0, dpfTemp1!!, 0.1)
+        assertEquals(53.6, dpfTemp1!!, 0.1)
 
-        // Active DPF Regeneration: 62 11 05 15 7C (0x157C = 5500 -> 5500 / 10 - 40 = 510.0°C > 500°C)
-        val response2 = "62 11 05 15 7C >"
+        // Active DPF Regeneration: 62 11 05 15 18 (0x1518 = 5400 -> 540.0 - 40 = 500.0°C)
+        val response2 = "62 11 05 15 18 >"
         val dpfTemp2 = ObdManager.parseDpfTempResponse(response2)
         assertNotNull(dpfTemp2)
-        assertEquals(510.0, dpfTemp2!!, 0.1)
+        assertEquals(500.0, dpfTemp2!!, 0.1)
     }
 
     @Test
@@ -38,7 +38,7 @@ class ObdManagerUnitTest {
         val pair = ObdManager.parseSootGramsAndPercent(response)
         assertNotNull(pair)
         assertEquals(12.0, pair!!.first, 0.1) // 12.0 g
-        assertEquals(48.0, pair.second, 0.1)  // 12g / 25g = 48.0%
+        assertEquals(66.6, pair.second, 0.1)  // 12g / 18g = 66.6%
     }
 
     @Test
