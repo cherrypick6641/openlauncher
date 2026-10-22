@@ -17,6 +17,18 @@ class ObdManagerUnitTest {
     }
 
     @Test
+    fun testParse2194CarScannerResponse() {
+        // Real response captured from Car Scanner log on Kia Ceed 1.6 CRDi:
+        // 7E8 10 0C 61 94 13 00 1B 8D 7E8 21 5C 00 D0 31 4F F5 55
+        val response = "7E8 10 0C 61 94 13 00 1B 8D 7E8 21 5C 00 D0 31 4F F5 55 >"
+        val m21 = ObdManager.parse2194Response(response)
+        assertNotNull(m21)
+        assertEquals(52.0, m21!!.coolantTemp!!, 0.1) // 0x5C = 92 -> 92 - 40 = 52°C
+        assertEquals(665.3, m21.dpfTemp!!, 0.1)     // 0x1B8D = 7053 -> 705.3 - 40 = 665.3°C
+        assertEquals(20.8, m21.sootGrams!!, 0.1)   // 0x00D0 = 208 -> 20.8g
+    }
+
+    @Test
     fun testParseDpfTemperature() {
         // Kia Ceed Mode 22 PID 221105 response: 62 11 05 03 A8 (0x03A8 = 936 -> 93.6 - 40 = 53.6°C)
         val response1 = "62 11 05 03 A8 >"

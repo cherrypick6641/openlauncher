@@ -20,7 +20,7 @@ import java.util.UUID
 
 /**
  * OBD2 Manager optimized for Kia Ceed JD 1.6 CRDi (128 HP, Bosch EDC17 ECU).
- * Reads Coolant Temp, DPF Temp, Soot Accumulation (grams & %), and Distance Since Last Regeneration.
+ * Queries Mode 21 (2194 / 2103) & Mode 01 (0105 / 0178) PIDs matching Car Scanner profile.
  */
 class ObdManager(private val context: Context) {
 
@@ -39,14 +39,20 @@ class ObdManager(private val context: Context) {
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
         // Nominal DPF Capacity threshold in grams for Kia 1.6 CRDi (EDC17 ECU)
-        // Active regeneration starts around 14-16g; 18g represents ~100% capacity threshold.
         const val DPF_MAX_SOOT_GRAMS = 18.0
+
+        data class ParsedMetrics(
+            val coolantTemp: Double? = null,
+            val dpfTemp: Double? = null,
+            val sootGrams: Double? = null,
+            val sootPercent: Double? = null,
+            val distanceKm: Int? = null
+        )
 
         // ── Response Parsing Helpers ─────────────────────────────────────────
 
         /**
          * Standard OBD2 PID 0105: Coolant Temp = A - 40 (°C)
-         * Expected Header Response: "41 05"
          */
         fun parseCoolantTempResponse(response: String): Double? {
             val bytes = extractHexBytes(response, "41 05") ?: extractHexBytes(response, "4105") ?: return null
@@ -56,26 +62,49 @@ class ObdManager(private val context: Context) {
         }
 
         /**
-         * Standard OBD2 PID 0178: Exhaust Gas Temperature Bank 1 Sensor 2 (°C)
-         * Formula: ((A * 256) + B) / 10.0 - 40.0
+         * Mode 21 PID 2194 parser for Kia Ceed JD 1.6 CRDi (128 HP EDC17)
+         * Response Header: "61 94"
+         * Bytes 2, 3: DPF Temperature ((A*256+B)/10 - 40)
+         * Byte 4 or 5: Coolant Temp (A - 40)
+         * Bytes 6, 7: Soot Accumulation Mass ((A*256+B)/10) in grams
+         * Bytes 8, 9: Distance Since Last Regeneration ((A*256+B)/10) in km
          */
-        fun parseExhaustGasTempResponse(response: String): Double? {
-            val bytes = extractHexBytes(response, "41 78") ?: extractHexBytes(response, "4178") ?: return null
-            if (bytes.size < 2) return null
-            val raw = (bytes[0] shl 8) or bytes[1]
-            val temp = (raw / 10.0) - 40.0
-            return temp.coerceIn(0.0, 1000.0)
+        fun parse2194Response(response: String): ParsedMetrics? {
+            val bytes = extractHexBytes(response, "61 94") ?: extractHexBytes(response, "6194") ?: return null
+            if (bytes.size < 4) return null
+
+            // Bytes 2, 3: DPF Temp
+            val dpfRaw = (bytes[2] shl 8) or bytes[3]
+            val dpfTemp = if (dpfRaw > 0) ((dpfRaw / 10.0) - 40.0).coerceIn(0.0, 1000.0) else null
+
+            // Coolant index: handles ISO-TP frame indicator 0x21 at byte 4 if present
+            val coolantIndex = if (bytes.size > 5 && bytes[4] == 0x21) 5 else 4
+            val coolantRaw = bytes.getOrNull(coolantIndex)
+            val coolant = coolantRaw?.let { (it - 40).toDouble().coerceIn(-40.0, 150.0) }
+
+            // Soot Mass (Grams & %)
+            val sootIndex = if (coolantIndex == 5) 6 else 5
+            val sootRaw = if (bytes.size >= sootIndex + 2) (bytes[sootIndex] shl 8) or bytes[sootIndex + 1] else 0
+            val sootGrams = if (sootRaw > 0) (sootRaw / 10.0).coerceIn(0.0, 40.0) else null
+            val sootPercent = sootGrams?.let { ((it / DPF_MAX_SOOT_GRAMS) * 100.0).coerceIn(0.0, 100.0) }
+
+            // Distance
+            val distIndex = sootIndex + 2
+            val distRaw = if (bytes.size >= distIndex + 2) (bytes[distIndex] shl 8) or bytes[distIndex + 1] else 0
+            val distKm = if (distRaw > 0) (distRaw / 10).coerceIn(0, 100000) else null
+
+            return ParsedMetrics(coolant, dpfTemp, sootGrams, sootPercent, distKm)
         }
 
         /**
          * Parses DPF Temperature before DPF (°C).
-         * Supports:
-         * - Mode 22 PID 22 11 05 / 22 21 01 (Header "62 11 05" or "62 21 01")
-         * - Mode 01 PID 01 78 (Exhaust Gas Temp, Header "41 78")
-         * Formula: ((A * 256) + B) / 10.0 - 40.0
          */
         fun parseDpfTempResponse(response: String): Double? {
-            // Check PID 221105
+            // Check Mode 21 PID 2194
+            val m21 = parse2194Response(response)
+            if (m21?.dpfTemp != null) return m21.dpfTemp
+
+            // Check Mode 22 PID 221105
             var bytes = extractHexBytes(response, "62 11 05") ?: extractHexBytes(response, "621105")
             if (bytes != null && bytes.size >= 2) {
                 val raw = (bytes[0] shl 8) or bytes[1]
@@ -83,21 +112,25 @@ class ObdManager(private val context: Context) {
                 return temp.coerceIn(0.0, 1000.0)
             }
 
-            // Check Mode 01 PID 0178
-            bytes = extractHexBytes(response, "41 78") ?: extractHexBytes(response, "4178")
-            if (bytes != null && bytes.size >= 2) {
-                val raw = (bytes[0] shl 8) or bytes[1]
-                val temp = (raw / 10.0) - 40.0
-                return temp.coerceIn(0.0, 1000.0)
+            // Check Mode 21 PID 2103
+            bytes = extractHexBytes(response, "61 03") ?: extractHexBytes(response, "6103")
+            if (bytes != null && bytes.size >= 4) {
+                for (i in 0 until bytes.size - 1) {
+                    val raw = (bytes[i] shl 8) or bytes[i + 1]
+                    val temp = (raw / 10.0) - 40.0
+                    if (temp in 30.0..950.0) return temp
+                }
             }
 
-            // Check PID 222101 / 221101
-            bytes = extractHexBytes(response, "62 21 01") ?: extractHexBytes(response, "622101")
-                ?: extractHexBytes(response, "62 11 01") ?: extractHexBytes(response, "621101")
-            if (bytes != null && bytes.size >= 4) {
-                val raw = (bytes[2] shl 8) or bytes[3]
-                val temp = (raw / 10.0) - 40.0
-                if (temp in 0.0..1000.0) return temp
+            // Check Standard OBD2 PID 0178
+            bytes = extractHexBytes(response, "41 78") ?: extractHexBytes(response, "4178")
+            if (bytes != null && bytes.size >= 2) {
+                val startIndex = if (bytes.size >= 3) 1 else 0
+                for (i in startIndex until bytes.size - 1 step 2) {
+                    val raw = (bytes[i] shl 8) or bytes[i + 1]
+                    val temp = (raw / 10.0) - 40.0
+                    if (temp in 30.0..950.0) return temp
+                }
             }
 
             return null
@@ -105,15 +138,15 @@ class ObdManager(private val context: Context) {
 
         /**
          * Parses DPF Soot Accumulation (grams and percent) for Kia 1.6 CRDi EDC17 ECU.
-         * Mode 22 PID 22 21 01 or 22 11 01.
-         * Reads soot mass from byte offset index 2, 1, or 0.
-         * Calculates percentage based on realistic 18.0g 100% capacity threshold.
-         * Returns Pair(grams, percent)
          */
         fun parseSootGramsAndPercent(response: String): Pair<Double, Double>? {
-            val bytes = extractHexBytes(response, "62 11 01") ?: extractHexBytes(response, "621101")
-                ?: extractHexBytes(response, "62 21 01") ?: extractHexBytes(response, "622101")
-                ?: extractHexBytes(response, "62 11 05") ?: extractHexBytes(response, "621105")
+            val m21 = parse2194Response(response)
+            if (m21?.sootGrams != null && m21.sootPercent != null) {
+                return m21.sootGrams to m21.sootPercent
+            }
+
+            val bytes = extractHexBytes(response, "61 03") ?: extractHexBytes(response, "6103")
+                ?: extractHexBytes(response, "62 11 01") ?: extractHexBytes(response, "621101")
                 ?: return null
             if (bytes.isEmpty()) return null
 
@@ -129,26 +162,19 @@ class ObdManager(private val context: Context) {
         }
 
         /**
-         * Mode 22 PID 22 11 02, 22 21 01, or 22 11 01: Distance Since Last DPF Regeneration (km).
-         * Formula: (A * 256) + B at fixed byte index.
+         * Parses Distance Since Last DPF Regeneration (km).
          */
         fun parseDistanceResponse(response: String): Int? {
-            // DEDICATED PID 221102
-            var bytes = extractHexBytes(response, "62 11 02") ?: extractHexBytes(response, "621102")
-            if (bytes != null && bytes.size >= 2) {
-                val dist = (bytes[0] shl 8) or bytes[1]
-                return dist.coerceIn(0, 100000)
-            }
+            val m21 = parse2194Response(response)
+            if (m21?.distanceKm != null) return m21.distanceKm
 
-            // MULTI-PARAM PID 222101 / 221101 (Distance fixed offset at bytes [4] and [5] after header)
-            bytes = extractHexBytes(response, "62 21 01") ?: extractHexBytes(response, "622101")
-                ?: extractHexBytes(response, "62 11 01") ?: extractHexBytes(response, "621101")
-            if (bytes != null && bytes.size >= 6) {
-                val dist = (bytes[4] shl 8) or bytes[5]
-                return dist.coerceIn(0, 100000)
-            }
+            val bytes = extractHexBytes(response, "61 03") ?: extractHexBytes(response, "6103")
+                ?: extractHexBytes(response, "62 11 02") ?: extractHexBytes(response, "621102")
+                ?: return null
+            if (bytes.size < 2) return null
 
-            return null
+            val dist = (bytes[0] shl 8) or bytes[1]
+            return dist.coerceIn(0, 100000)
         }
 
         /**
@@ -167,8 +193,10 @@ class ObdManager(private val context: Context) {
                 .uppercase()
                 .trim()
 
-            // Remove whitespace for exact substring searching
-            val cleanedStr = clean.replace(" ", "")
+            val cleanedStr = clean
+                .replace(Regex("7E[0-9A-F]\\s*"), "")
+                .replace(" ", "")
+
             val headerClean = header.replace(" ", "").uppercase()
 
             val index = cleanedStr.indexOf(headerClean)
@@ -262,73 +290,59 @@ class ObdManager(private val context: Context) {
 
             if (inputStream == null || outputStream == null) return@withContext false
 
-            // ELM327 Initialization Commands for Kia Ceed JD 1.6 CRDi (128 hp)
+            // ELM327 Initialization Commands for Kia Ceed JD 1.6 CRDi (Car Scanner sequence)
             sendCmd("AT Z\r")           // Reset ELM327
             delay(1000)
             sendCmd("AT E0\r")          // Echo Off
             delay(150)
             sendCmd("AT L0\r")          // Linefeeds Off
             delay(150)
-            sendCmd("AT H0\r")          // Headers OFF (Strips CAN ID 7E8)
+            sendCmd("AT H0\r")          // Headers OFF
             delay(150)
-            sendCmd("AT CAF1\r")        // CAN Automatic Formatting ON (Mandatory for Mode 22 ISO-TP!)
+            sendCmd("AT CAF1\r")        // CAN Automatic Formatting ON
             delay(150)
             sendCmd("AT SP 6\r")        // ISO 15765-4 CAN (11 bit ID, 500 kbaud)
             delay(150)
             sendCmd("AT SH 7E0\r")      // CAN Header 7E0 (Engine ECM)
             delay(150)
-            sendCmd("AT CRA 7E8\r")     // Receive CAN Header 7E8
-            delay(150)
-            sendCmd("AT FC SH 7E0\r")   // Flow Control Header 7E0
-            delay(150)
-            sendCmd("AT FC SD 30 00 00\r") // Flow Control Data
-            delay(150)
-            sendCmd("AT FC SM 1\r")     // Flow Control Mode 1
-            delay(150)
 
-            FileLogger.log(context, "OBD: Connected & CAN Flow Control initialized for Kia Ceed 1.6 CRDi!")
+            FileLogger.log(context, "OBD: Connected & Initialized matching Car Scanner profile!")
             _obdState.value = _obdState.value.copy(
                 isConnected = true,
                 isConnecting = false,
                 statusMessage = "CONNECTED"
             )
 
-            // Polling Loop with delay between queries
+            // Polling Loop (Car Scanner sequence)
             while (scope.isActive) {
-                // 1. Coolant Temp (0105)
-                val coolantResp = sendCmd("01 05\r")
+                // 1. Primary Car Scanner Mode 21 PID for Kia Ceed 1.6 CRDi: 21 94
+                val resp2194 = sendCmd("21 94\r")
                 delay(100)
-                val coolant = parseCoolantTempResponse(coolantResp)
+                val m21 = parse2194Response(resp2194)
 
-                // 2. Query Primary Hyundai/Kia Mode 22 & OBD2 PIDs
-                val resp221101 = sendCmd("22 11 01\r")
-                delay(100)
-                val resp221105 = sendCmd("22 11 05\r")
-                delay(100)
-                val resp221102 = sendCmd("22 11 02\r")
-                delay(100)
-                val resp222101 = sendCmd("22 21 01\r")
-                delay(100)
-                val resp0178   = sendCmd("01 78\r")
+                // 2. Secondary Car Scanner PID: 21 03
+                val resp2103 = sendCmd("21 03\r")
                 delay(100)
 
-                // Parse DPF Temp
-                val dpfTemp = parseDpfTempResponse(resp221105)
-                    ?: parseDpfTempResponse(resp221101)
-                    ?: parseDpfTempResponse(resp222101)
-                    ?: parseExhaustGasTempResponse(resp0178)
+                // 3. Fallback Standard OBD2 PIDs: 01 05 & 01 78
+                val resp0105 = sendCmd("01 05\r")
+                delay(100)
+                val coolant = m21?.coolantTemp ?: parseCoolantTempResponse(resp0105)
 
-                // Parse Soot Mass & Percent
-                val sootPair = parseSootGramsAndPercent(resp221101)
-                    ?: parseSootGramsAndPercent(resp222101)
-                    ?: parseSootGramsAndPercent(resp221105)
+                val resp0178 = sendCmd("01 78\r")
+                delay(100)
+                val dpfTemp = m21?.dpfTemp ?: parseDpfTempResponse(resp2103) ?: parseDpfTempResponse(resp0178)
 
-                // Parse Distance Since Last Regen
-                val dist = parseDistanceResponse(resp221102)
-                    ?: parseDistanceResponse(resp221101)
-                    ?: parseDistanceResponse(resp222101)
+                val sootPair = if (m21?.sootGrams != null && m21.sootPercent != null) {
+                    m21.sootGrams to m21.sootPercent
+                } else {
+                    parseSootGramsAndPercent(resp2103)
+                }
 
-                val rawSummary = "221101:$resp221101 | 221105:$resp221105 | 0178:$resp0178"
+                val dist = m21?.distanceKm ?: parseDistanceResponse(resp2103)
+
+                val rawSummary = "2194:$resp2194 | 2103:$resp2103 | 0105:$resp0105"
+                FileLogger.log(context, "OBD Stats -> Coolant:$coolant, DPF Temp:$dpfTemp, Soot:${sootPair?.first}g, Dist:${dist}km")
                 FileLogger.log(context, "OBD Raw -> $rawSummary")
 
                 val updatedState = _obdState.value.copy(
