@@ -11,8 +11,25 @@ import java.util.Locale
 object FileLogger {
     private const val TAG = "OpenLauncher"
     private const val FILE_NAME = "launcher_logs.txt"
+    private var isClearedThisSession = false
+
+    fun clearLog(context: Context) {
+        try {
+            val logFile = File(context.getExternalFilesDir(null), FILE_NAME)
+            if (logFile.exists()) {
+                logFile.writeText("") // Clear/truncate log file on app launch
+            }
+            isClearedThisSession = true
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear log file", e)
+        }
+    }
 
     fun log(context: Context, message: String) {
+        if (!isClearedThisSession) {
+            clearLog(context)
+        }
+
         val timestamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.getDefault()).format(Date())
         val logEntry = "[$timestamp] $message\n"
         

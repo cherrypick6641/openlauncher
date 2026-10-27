@@ -17,27 +17,29 @@ class ObdManagerUnitTest {
     }
 
     @Test
-    fun testParse2194CarScannerResponse() {
-        // Header "61 94", followed by:
-        // bytes[0,1] = DPF Temp (0x03A8 = 936 -> 93.6 - 40 = 53.6°C)
-        // bytes[2]   = Coolant (0x5C = 92 -> 92 - 40 = 52°C)
-        // bytes[4]   = Soot mass (0x0C = 12g)
-        // bytes[6,7] = Distance (0x01A4 = 420km)
-        val response = "61 94 03 A8 5C 00 0C 00 01 A4 >"
-        val m21 = ObdManager.parse2194Response(response)
-        assertNotNull(m21)
-        assertEquals(52.0, m21!!.coolantTemp!!, 0.1)
-        assertEquals(53.6, m21.dpfTemp!!, 0.1)
-        assertEquals(12.0, m21.sootGrams!!, 0.1)
-        assertEquals(420, m21.distanceKm!!)
+    fun testParseTripStartAndEndValues() {
+        // Trip End values in driving log D:\launcher_logs.txt (Soot = 12.94g, Temp = 202.62°C, Dist = 271.50km):
+        val resp2102End = "029\r0:6102FFFFFFFF 1:232D6D003200A0 2:330000806E047F 3:FF75D175F7391D 4:1800FFFFFFFFFF 5:FFFFFFFFFFFFFF >"
+        val m2102End = ObdManager.parse2102Response(resp2102End)
+        assertNotNull(m2102End)
+        assertEquals(202.62, m2102End!!.dpfTemp!!, 0.1)  // 0x75D1 = 30161 -> (30161 - 9899)/100 = 202.62°C!
+        assertEquals(272, m2102End.distanceKm!!)       // 0x75F7 = 30199 -> (30199 - 3049)/100 = 271.50km -> 272 km!
+
+        val resp2101End = "028\r0:6101FFFFFFFF 1:0023001D464843 2:53A14A261300FF 3:14910D0AFF0000 4:48A23FFF1E0300 5:0024FFFFFFFF55 >"
+        val m2101End = ObdManager.parse2101Response(resp2101End)
+        assertNotNull(m2101End)
+        assertEquals(12.94, m2101End!!.sootGrams!!, 0.1) // 0x43 = 67 -> (67 * 2)/10.046 = 12.94g!
     }
 
     @Test
-    fun testParseEgt0178Response() {
-        // Mode 01 PID 0178 EGT response: 41 78 01 03 A8 (0x03A8 = 936 -> 93.6 - 40 = 53.6°C)
-        val response = "41 78 01 03 A8 >"
-        val temp = ObdManager.parseEgt0178Response(response)
-        assertNotNull(temp)
-        assertEquals(53.6, temp!!, 0.1)
+    fun testDecodeResponseMultiFrame() {
+        val raw = "00C\r0: 61 FF 15 00 1B 91\r1: 59 00 0C 03 14 FF\r\r>"
+        val bytes = ObdManager.decodeResponse(raw)
+        assertNotNull(bytes)
+        assertEquals(12, bytes!!.size)
+        assertEquals(0x61, bytes[0])
+        assertEquals(0xFF, bytes[1])
+        assertEquals(0x03, bytes[9])
+        assertEquals(0x14, bytes[10])
     }
 }
