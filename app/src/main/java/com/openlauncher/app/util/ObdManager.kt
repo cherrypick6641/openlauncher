@@ -18,16 +18,27 @@ import kotlinx.coroutines.withContext
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 /**
  * OBD2 Manager for Kia Ceed JD 1.6 CRDi (Bosch EDC17, ECU 7E0 -> 7E8).
  *
- * Exact Kia CRDi sensor profiles matched to 2-point driving log:
- *  - DPF Temp Before DPF: PID 2102 bytes [21..22] / 100.0 - 99.18 -> 155.52 °C (start) .. 245.00 °C (end)
- *  - Soot Accumulation Mass: PID 2101 bytes [15..16] (raw - 30) / 211.18 -> 12.16 g (start) .. 12.55 g (end)
- *  - Distance Since Last Regen: PID 2102 bytes [23..24] (raw - 711) / 100.0 -> 247.96 km (start) .. 263.31 km (end)
- *  - Coolant Temp: PID 0105 b[2] - 40 -> 61.0 °C
+ * The ECU speaks KWP-style Mode 21 ("61 xx" replies); standard DPF PIDs (01 78/7A/7C) return no data.
+ * All three DPF values were located and checked against Car Scanner readings from three trips
+ * (payload = reply bytes counted from the "61" service byte at index 0):
+ *
+ *  DISTANCE SINCE REGEN  reply to 2103, bytes [56..58] big-endian / 1000  (km)
+ *      Trip 28.10: 273.524 -> 276.831 km vs Car Scanner 273.52 -> 276.83, never decreased in 208 samples.
+ *  SOOT MASS             reply to 21948001, bytes [9..10] big-endian * 0.39 - 299.45  (g)
+ *      Raw 801 -> 12.94 g (27.10), raw 802 -> 13.33 g (28.10), raw 788 -> 7.87 g (22.10, reported ~7.8).
+ *      Resolution is one raw step = 0.39 g, so it changes in 0.39 g jumps.
+ *  TEMP BEFORE DPF       reply to 21948001, byte [8] * 4.7092 + 94.305  (°C)
+ *      Reproduces all four Car Scanner readings (169.65, 202.62, 197.91, 226.16) within 0.003 °C.
+ *      Resolution is one raw step = 4.71 °C (the same byte is repeated in 2103[48]).
+ *
+ * Caveat: soot has only two exact readings (plus one approximate); recheck the offset when soot
+ * changes by a few raw steps. The 100% soot level below is an assumption, not read from the ECU.
  */
 class ObdManager(private val context: Context) {
 
@@ -42,33 +53,51 @@ class ObdManager(private val context: Context) {
     private var inputStream: InputStream? = null
     private var outputStream: OutputStream? = null
 
+    // Distance monotonic guard state
+    private var lastDistanceKm: Double? = null
+    private var pendingResetKm: Double? = null
+    private var pendingResetCount = 0
+
     companion object {
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
-        /** ASSUMPTION: soot mass treated as 100% at this value. */
+        /** ASSUMPTION (not read from the ECU): soot mass treated as 100% at this value. */
         const val DPF_MAX_SOOT_GRAMS = 18.0
 
-        /** Main DPF frame exactly as sent by Car Scanner. */
-        const val CMD_DPF_MAIN = "21948001"
+        private const val CMD_DISTANCE = "2103"
+        private const val CMD_DPF_MAIN = "21948001"
 
-        data class ParsedMetrics(
-            val coolantTemp: Double? = null,
-            val dpfTemp: Double? = null,
-            val sootGrams: Double? = null,
-            val sootPercent: Double? = null,
-            val distanceKm: Int? = null
-        )
+        private const val DISTANCE_FIRST_BYTE = 56
+        private const val DISTANCE_SCALE = 1000.0
+
+        private const val SOOT_HI_BYTE = 9
+        private const val SOOT_SCALE = 0.39
+        private const val SOOT_OFFSET = -299.45
+
+        private const val TEMP_BYTE = 8
+        private const val TEMP_SCALE = 4.7092
+        private const val TEMP_OFFSET = 94.305
+
+        /** When true, other Car Scanner frames are logged raw every cycle (slows polling a little). */
+        const val CALIBRATION_LOGGING = false
+        private val CALIBRATION_CMDS = listOf("2101", "2106", "2107", "211B")
+
+        /** A lower distance is accepted as a regeneration reset only after this many agreeing readings. */
+        private const val RESET_CONFIRMATIONS = 4
+        private const val NOISE_TOLERANCE_KM = 0.05
 
         data class DpfFrame(
             val sootGrams: Double,
             val sootPercent: Double,
-            val dpfTempCelsius: Double?
+            val dpfTempCelsius: Double
         )
 
         private fun isHex(c: Char) = c in '0'..'9' || c in 'A'..'F'
 
         /**
-         * Turns raw ELM327 text (AT H0, multi-frame formatted) into UDS/KWP payload bytes.
+         * Turns raw ELM327 text (AT H0, multi-frame formatted) into the KWP payload bytes.
+         *   "00C\r0: 61 FF 15 00 1B 91\r1: 59 00 0C 03 14 FF\r\r>"  ->  61 FF 15 ... 14 FF
+         * Returns null for NO DATA / errors / 7F negatives / incomplete multi-frame replies.
          */
         fun decodeResponse(raw: String): List<Int>? {
             val upper = raw.uppercase()
@@ -76,24 +105,31 @@ class ObdManager(private val context: Context) {
                 upper.contains("ERROR") || upper.contains("STOPPED") || upper.contains("BUFFER FULL")
             ) return null
 
+            var declaredLen = -1
             val hex = StringBuilder()
-            val tokens = upper.replace(">", " ").split('\r', '\n', ' ')
-            for (rawToken in tokens) {
-                var token = rawToken.trim()
-                if (token.isEmpty() || token.startsWith("SEARCHING") || token == "OK" || token == "?") continue
+            for (rawLine in upper.split('\r', '\n')) {
+                var line = rawLine.replace(">", "").replace(" ", "").trim()
+                if (line.isEmpty() || line.startsWith("SEARCHING") || line == "OK" || line == "?") continue
 
-                // Skip Multi-frame header token (e.g. "00C" or "028" or "029")
-                if (token.length in 3..4 && token.all { isHex(it) }) continue
+                // Multi-frame length line: exactly 3 hex chars ("029", "04B").
+                if (line.length == 3 && line.all { isHex(it) }) {
+                    declaredLen = line.toInt(16)
+                    continue
+                }
+                // Indexed frame line: "0:", "1:" ... "F:"
+                if (line.length >= 2 && line[1] == ':') line = line.substring(2)
 
-                // Indexed frame token: "0:", "1:" ... "F:"
-                if (token.length >= 2 && token[1] == ':') token = token.substring(2)
-
-                if (token.isEmpty() || !token.all { isHex(it) }) continue
-                hex.append(token)
+                if (line.isEmpty() || !line.all { isHex(it) }) continue
+                hex.append(line)
             }
 
             if (hex.isEmpty() || hex.length % 2 != 0) return null
-            val bytes = hex.chunked(2).mapNotNull { it.toIntOrNull(16) }
+            var bytes = hex.chunked(2).map { it.toInt(16) }
+
+            if (declaredLen > 0) {
+                if (bytes.size < declaredLen) return null      // frames missing
+                bytes = bytes.take(declaredLen)                // drop 0x55 padding
+            }
             if (bytes.isEmpty() || bytes[0] == 0x7F) return null
             return bytes
         }
@@ -105,59 +141,61 @@ class ObdManager(private val context: Context) {
             return (b[2] - 40).toDouble().coerceIn(-40.0, 150.0)
         }
 
-        /**
-         * Primary Mode 21 PID 2102 parser for Kia Ceed JD 1.6 CRDi.
-         * DPF Temp Before DPF: bytes [21..22] (raw - 9899) / 100.0 -> 169.65 °C (start) .. 202.62 °C (end)
-         * Distance Since Last Regen: bytes [23..24] (raw - 3049) / 100.0 -> 269.44 km (start) .. 271.50 km (end)
-         */
-        fun parse2102Response(response: String): ParsedMetrics? {
-            val bytes = decodeResponse(response) ?: return null
-            if (bytes.size < 23 || bytes[0] != 0x61 || bytes[1] != 0x02) return null
-
-            // DPF Temp
-            val rawTemp = (bytes[21] shl 8) or bytes[22]
-            val dpfTemp = if (rawTemp > 9899) ((rawTemp - 9899) / 100.0).coerceIn(0.0, 950.0) else null
-
-            // Distance
-            val distKm = if (bytes.size >= 25) {
-                val rawDist = (bytes[23] shl 8) or bytes[24]
-                if (rawDist > 3049) ((rawDist - 3049) / 100.0).roundToInt().coerceIn(0, 100000) else null
-            } else null
-
-            return ParsedMetrics(dpfTemp = dpfTemp, distanceKm = distKm)
+        /** Reply to 2103 -> distance since last DPF regeneration in km. */
+        fun parseDistanceFrame(response: String): Double? {
+            val b = decodeResponse(response) ?: return null
+            if (b.size < DISTANCE_FIRST_BYTE + 3 || b[0] != 0x61 || b[1] != 0x03) return null
+            val raw = (b[DISTANCE_FIRST_BYTE] shl 16) or (b[DISTANCE_FIRST_BYTE + 1] shl 8) or b[DISTANCE_FIRST_BYTE + 2]
+            if (raw == 0xFFFFFF) return null                   // "not available" filler
+            return raw / DISTANCE_SCALE
         }
 
-        /**
-         * Primary Mode 21 PID 2101 parser for Kia Ceed JD 1.6 CRDi.
-         * Soot Mass: byte [12] (raw - 2) / 5.02 -> 12.94 g (start) .. 12.94 g (end)
-         */
-        fun parse2101Response(response: String): ParsedMetrics? {
-            val bytes = decodeResponse(response) ?: return null
-            if (bytes.size < 13 || bytes[0] != 0x61 || bytes[1] != 0x01) return null
-
-            val rawSoot = bytes[12]
-            val sootGrams = ((rawSoot - 2) / 5.02).coerceIn(0.0, 50.0)
-            val sootPercent = ((sootGrams / DPF_MAX_SOOT_GRAMS) * 100.0).coerceIn(0.0, 100.0)
-
-            return ParsedMetrics(sootGrams = sootGrams, sootPercent = sootPercent)
-        }
-
-        /** Parses main DPF frame 21948001. */
+        /** Reply to 21948001 -> soot mass (g, %) and temperature before the DPF (°C). */
         fun parseDpfMainFrame(response: String): DpfFrame? {
             val b = decodeResponse(response) ?: return null
             if (b.size < 11 || b[0] != 0x61 || b[1] != 0xFF) return null
 
-            val rawSoot = (b[9] shl 8) or b[10]
-            val sootGrams = (rawSoot / 80.9).coerceIn(0.0, 50.0)
-            val sootPercent = (sootGrams / DPF_MAX_SOOT_GRAMS * 100.0).coerceIn(0.0, 100.0)
+            val sootRaw = (b[SOOT_HI_BYTE] shl 8) or b[SOOT_HI_BYTE + 1]
+            val soot = sootRaw * SOOT_SCALE + SOOT_OFFSET
+            val temp = b[TEMP_BYTE] * TEMP_SCALE + TEMP_OFFSET
+            if (soot !in 0.0..100.0 || temp !in 0.0..1000.0) return null
 
-            val temp = b.getOrNull(6)?.let { (it - 40).toDouble() }?.takeIf { it in -40.0..900.0 }
-
-            return DpfFrame(sootGrams, sootPercent, temp)
+            val percent = (soot / DPF_MAX_SOOT_GRAMS * 100.0).coerceIn(0.0, 100.0)
+            return DpfFrame(soot, percent, temp)
         }
 
         fun toHexString(bytes: List<Int>?): String =
             bytes?.joinToString(" ") { "%02X".format(it) } ?: "null"
+    }
+
+    /**
+     * Distance since regeneration must never go backwards during normal driving.
+     * Lower readings are ignored (noise / glitches) unless they repeat consistently, which means
+     * the ECU really reset the counter after a regeneration.
+     */
+    private fun acceptDistance(km: Double): Double {
+        val last = lastDistanceKm
+        if (last == null || km >= last) {
+            lastDistanceKm = km
+            pendingResetKm = null
+            pendingResetCount = 0
+            return km
+        }
+        val pending = pendingResetKm
+        if (pending != null && abs(km - pending) <= NOISE_TOLERANCE_KM) {
+            pendingResetCount++
+        } else {
+            pendingResetKm = km
+            pendingResetCount = 1
+        }
+        if (pendingResetCount >= RESET_CONFIRMATIONS) {
+            FileLogger.log(context, "OBD: distance reset detected ($last -> $km km) - regeneration")
+            lastDistanceKm = km
+            pendingResetKm = null
+            pendingResetCount = 0
+            return km
+        }
+        return last   // keep the previous (higher) value
     }
 
     fun start(deviceAddress: String) {
@@ -240,75 +278,81 @@ class ObdManager(private val context: Context) {
             outputStream = socket?.outputStream
             if (inputStream == null || outputStream == null) return@withContext false
 
-            // ELM327 Initialization Commands for Kia Ceed JD 1.6 CRDi (Car Scanner sequence)
-            sendCmd("AT Z\r")           // Reset ELM327
-            delay(1000)
-            sendCmd("AT E0\r")          // Echo Off
-            delay(150)
-            sendCmd("AT L0\r")          // Linefeeds Off
-            delay(150)
-            sendCmd("AT H0\r")          // Headers OFF
-            delay(150)
-            sendCmd("AT CAF1\r")        // CAN Automatic Formatting ON
-            delay(150)
-            sendCmd("AT SP 6\r")        // ISO 15765-4 CAN (11 bit ID, 500 kbaud)
-            delay(150)
-            sendCmd("AT SH 7E0\r")      // CAN Header 7E0 (Engine ECM)
-            delay(150)
+            // Init sequence modelled on the Car Scanner session (ELM327 v2.2 clone).
+            val initCmds = listOf(
+                "ATZ" to 1000L,
+                "ATE0" to 150L,
+                "ATL0" to 150L,
+                "ATH0" to 150L,      // headers off -> multi-frame replies as "00C / 0: .. / 1: .."
+                "ATS0" to 150L,
+                "ATCAF1" to 150L,    // automatic ISO-TP formatting + flow control
+                "ATSP6" to 150L,     // ISO 15765-4 CAN 11-bit / 500 kbaud
+                "ATSH7E0" to 150L,   // engine ECU
+                "ATAT1" to 150L,
+                "ATST64" to 150L     // 400 ms response timeout
+            )
+            for ((cmd, wait) in initCmds) {
+                val reply = sendCmd("$cmd\r")
+                FileLogger.log(context, "OBD init $cmd -> ${reply.replace("\r", " ").trim()}")
+                delay(wait)
+            }
 
-            FileLogger.log(context, "OBD: Connected & Initialized matching Car Scanner profile!")
+            FileLogger.log(context, "OBD: Connected & initialized")
             _obdState.value = _obdState.value.copy(
                 isConnected = true,
                 isConnecting = false,
                 statusMessage = "CONNECTED"
             )
 
-            // Polling Loop (Car Scanner sequence with 150ms inter-command pauses to prevent buffer overrun)
-            while (scope.isActive) {
-                // 1. Primary Car Scanner Mode 21 PID for Sensor ID 13655013 (DPF Temp & Distance): 21 02
-                val resp2102 = sendCmd("21 02\r")
-                delay(150)
-                val m2102 = parse2102Response(resp2102)
+            while (isActive) {
+                val respCoolant = sendCmd("0105\r")
+                delay(60)
+                val respDist = sendCmd("$CMD_DISTANCE\r")
+                delay(60)
+                val respDpf = sendCmd("$CMD_DPF_MAIN\r")
+                delay(60)
 
-                // 2. Primary Car Scanner Mode 21 PID for Soot Mass: 21 01
-                val resp2101 = sendCmd("21 01\r")
-                delay(150)
-                val m2101 = parse2101Response(resp2101)
+                val coolant = parseCoolantTempResponse(respCoolant)
+                val rawDistance = parseDistanceFrame(respDist)
+                val distanceKm = rawDistance?.let { acceptDistance(it) }
+                val dpf = parseDpfMainFrame(respDpf)
 
-                // 3. Car Scanner Main DPF PID: 21 94 80 01
-                val resp2194 = sendCmd("$CMD_DPF_MAIN\r")
-                delay(150)
-                val m2194 = parseDpfMainFrame(resp2194)
+                val rawParts = mutableListOf(
+                    "0105:${toHexString(decodeResponse(respCoolant))}",
+                    "$CMD_DISTANCE:${toHexString(decodeResponse(respDist))}",
+                    "$CMD_DPF_MAIN:${toHexString(decodeResponse(respDpf))}"
+                )
+                if (CALIBRATION_LOGGING) {
+                    for (cmd in CALIBRATION_CMDS) {
+                        rawParts += "$cmd:${toHexString(decodeResponse(sendCmd("$cmd\r")))}"
+                        delay(60)
+                    }
+                }
+                val rawSummary = rawParts.joinToString(" | ")
 
-                // 4. Standard OBD2 Coolant Temp: 01 05
-                val resp0105 = sendCmd("01 05\r")
-                delay(150)
-
-                val coolant = parseCoolantTempResponse(resp0105)
-                val dpfTemp = m2102?.dpfTemp ?: m2194?.dpfTempCelsius
-                val sootGrams = m2101?.sootGrams ?: m2194?.sootGrams
-                val sootPercent = m2101?.sootPercent ?: m2194?.sootPercent
-                val dist = m2102?.distanceKm
-
-                val rawSummary = "2102:$resp2102 | 2101:$resp2101 | $CMD_DPF_MAIN:$resp2194"
-                FileLogger.log(context, "OBD Stats -> Coolant:$coolant, DPF Temp:$dpfTemp, Soot:${sootGrams}g (${sootPercent}%), Dist:${dist}km")
+                FileLogger.log(
+                    context,
+                    "OBD Stats -> Coolant:$coolant, DPF Temp:${dpf?.dpfTempCelsius?.let { "%.2f".format(it) }}, " +
+                            "Soot:${dpf?.sootGrams?.let { "%.2f".format(it) }}g, " +
+                            "Dist:${distanceKm?.let { "%.3f".format(it) }}km (raw ${rawDistance?.let { "%.3f".format(it) }})"
+                )
                 FileLogger.log(context, "OBD Raw -> $rawSummary")
 
-                val updatedState = _obdState.value.copy(
+                // ObdState.distanceSinceRegenKm is an Int in the current model; if it is a Double, drop roundToInt().
+                _obdState.value = _obdState.value.copy(
                     isConnected = true,
                     isConnecting = false,
                     coolantTemperatureCelsius = coolant ?: _obdState.value.coolantTemperatureCelsius,
-                    dpfTemperatureCelsius = dpfTemp ?: _obdState.value.dpfTemperatureCelsius,
-                    sootGrams = sootGrams ?: _obdState.value.sootGrams,
-                    sootLevelPercent = sootPercent ?: _obdState.value.sootLevelPercent,
-                    distanceSinceRegenKm = dist ?: _obdState.value.distanceSinceRegenKm,
+                    dpfTemperatureCelsius = dpf?.dpfTempCelsius ?: _obdState.value.dpfTemperatureCelsius,
+                    sootGrams = dpf?.sootGrams ?: _obdState.value.sootGrams,
+                    sootLevelPercent = dpf?.sootPercent ?: _obdState.value.sootLevelPercent,
+                    distanceSinceRegenKm = distanceKm?.roundToInt() ?: _obdState.value.distanceSinceRegenKm,
                     statusMessage = "CONNECTED",
                     rawFrameDump = rawSummary,
                     lastUpdatedMs = System.currentTimeMillis()
                 )
-                _obdState.value = updatedState
 
-                delay(1500) // Poll cycle delay
+                delay(1000)
             }
             true
         } catch (e: CancellationException) {
