@@ -62,7 +62,6 @@ class ObdManager(private val context: Context) {
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
         /** ASSUMPTION (not read from the ECU): soot mass treated as 100% at this value. */
-        const val DPF_MAX_SOOT_GRAMS = 18.0
 
         private const val CMD_DISTANCE = "2103"
         private const val CMD_DPF_MAIN = "21948001"
@@ -88,7 +87,6 @@ class ObdManager(private val context: Context) {
 
         data class DpfFrame(
             val sootGrams: Double,
-            val sootPercent: Double,
             val dpfTempCelsius: Double
         )
 
@@ -160,8 +158,7 @@ class ObdManager(private val context: Context) {
             val temp = b[TEMP_BYTE] * TEMP_SCALE + TEMP_OFFSET
             if (soot !in 0.0..100.0 || temp !in 0.0..1000.0) return null
 
-            val percent = (soot / DPF_MAX_SOOT_GRAMS * 100.0).coerceIn(0.0, 100.0)
-            return DpfFrame(soot, percent, temp)
+            return DpfFrame(soot, temp)
         }
 
         fun toHexString(bytes: List<Int>?): String =
@@ -345,7 +342,6 @@ class ObdManager(private val context: Context) {
                     coolantTemperatureCelsius = coolant ?: _obdState.value.coolantTemperatureCelsius,
                     dpfTemperatureCelsius = dpf?.dpfTempCelsius ?: _obdState.value.dpfTemperatureCelsius,
                     sootGrams = dpf?.sootGrams ?: _obdState.value.sootGrams,
-                    sootLevelPercent = dpf?.sootPercent ?: _obdState.value.sootLevelPercent,
                     distanceSinceRegenKm = distanceKm?.roundToInt() ?: _obdState.value.distanceSinceRegenKm,
                     statusMessage = "CONNECTED",
                     rawFrameDump = rawSummary,

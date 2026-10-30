@@ -49,7 +49,6 @@ fun ObdRightBar(
     val containerBg = if (isDayMode) Color(0xFFE8E8E8) else Color(0xFF101012)
     val containerBorder = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF222224)
     val textColor = if (isDayMode) Color.Black else Color.White
-    val mutedColor = if (isDayMode) Color(0xFF666666) else Color(0xFFAAAAAA)
     val warningColor = Color(0xFFE53935)
 
     val isRegenActive = obdState.isDpfRegenActive
@@ -119,7 +118,7 @@ fun ObdRightBar(
                     ObdGaugeItem(
                         icon = Icons.Default.Thermostat,
                         valueText = dpfTempText,
-                        label = if (isRegenActive) "REGEN!" else "DPF",
+                        label = if (isRegenActive) "REGEN!" else "DPF TEMP",
                         valueColor = dpfColor,
                         iconColor = accent
                     )
@@ -129,7 +128,6 @@ fun ObdRightBar(
                 if (settings.showSootLevel) {
                     val grams = obdState.sootGrams
                     val sootText = grams?.let { String.format(Locale.US, "%.1fg", it) }
-                        ?: obdState.sootLevelPercent?.let { "${it.roundToInt()}%" }
                         ?: "--g"
 
                     ObdGaugeItem(

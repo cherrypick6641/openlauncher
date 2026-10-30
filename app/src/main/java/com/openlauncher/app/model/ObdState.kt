@@ -4,7 +4,6 @@ data class ObdState(
     val isConnected: Boolean = false,
     val isConnecting: Boolean = false,
     val sootGrams: Double? = null,
-    val sootLevelPercent: Double? = null,
     val dpfTemperatureCelsius: Double? = null,
     val distanceSinceRegenKm: Int? = null,
     val coolantTemperatureCelsius: Double? = null,
