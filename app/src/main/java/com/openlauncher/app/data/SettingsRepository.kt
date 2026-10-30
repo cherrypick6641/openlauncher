@@ -82,6 +82,11 @@ class SettingsRepository(private val context: Context) {
         val SHOW_DPF_TEMP        = booleanPreferencesKey("show_dpf_temp")
         val SHOW_LAST_REGEN_DIST = booleanPreferencesKey("show_last_regen_dist")
         val SHOW_COOLANT_TEMP    = booleanPreferencesKey("show_coolant_temp")
+        val SHOW_VOLTAGE         = booleanPreferencesKey("show_voltage")
+        val SHOW_FUEL_USAGE      = booleanPreferencesKey("show_fuel_usage")
+        val SHOW_TRIP_DISTANCE   = booleanPreferencesKey("show_trip_distance")
+        val SHOW_ENGINE_RPM      = booleanPreferencesKey("show_engine_rpm")
+        val SHOW_TURBO_BOOST     = booleanPreferencesKey("show_turbo_boost")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -176,7 +181,12 @@ class SettingsRepository(private val context: Context) {
                 showSootLevel      = prefs[Keys.SHOW_SOOT_LEVEL]      ?: defaults.showSootLevel,
                 showDpfTemp        = prefs[Keys.SHOW_DPF_TEMP]        ?: defaults.showDpfTemp,
                 showLastRegenDist = prefs[Keys.SHOW_LAST_REGEN_DIST] ?: defaults.showLastRegenDist,
-                showCoolantTemp    = prefs[Keys.SHOW_COOLANT_TEMP]    ?: defaults.showCoolantTemp
+                showCoolantTemp    = prefs[Keys.SHOW_COOLANT_TEMP]    ?: defaults.showCoolantTemp,
+                showVoltage        = prefs[Keys.SHOW_VOLTAGE]         ?: defaults.showVoltage,
+                showFuelUsage      = prefs[Keys.SHOW_FUEL_USAGE]      ?: defaults.showFuelUsage,
+                showTripDistance   = prefs[Keys.SHOW_TRIP_DISTANCE]   ?: defaults.showTripDistance,
+                showEngineRpm      = prefs[Keys.SHOW_ENGINE_RPM]      ?: defaults.showEngineRpm,
+                showTurboBoost     = prefs[Keys.SHOW_TURBO_BOOST]     ?: defaults.showTurboBoost
             )
     }
 
@@ -249,6 +259,11 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SHOW_DPF_TEMP]        = s.showDpfTemp
             prefs[Keys.SHOW_LAST_REGEN_DIST] = s.showLastRegenDist
             prefs[Keys.SHOW_COOLANT_TEMP]    = s.showCoolantTemp
+            prefs[Keys.SHOW_VOLTAGE]         = s.showVoltage
+            prefs[Keys.SHOW_FUEL_USAGE]      = s.showFuelUsage
+            prefs[Keys.SHOW_TRIP_DISTANCE]   = s.showTripDistance
+            prefs[Keys.SHOW_ENGINE_RPM]      = s.showEngineRpm
+            prefs[Keys.SHOW_TURBO_BOOST]     = s.showTurboBoost
     }
 
     suspend fun resetToDefaults() {

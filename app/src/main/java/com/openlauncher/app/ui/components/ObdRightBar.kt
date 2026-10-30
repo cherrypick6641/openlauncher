@@ -12,11 +12,18 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BluetoothDisabled
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.LocalGasStation
+import androidx.compose.material.icons.filled.Navigation
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.Water
 import androidx.compose.material3.Icon
@@ -107,7 +114,9 @@ fun ObdRightBar(
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.SpaceEvenly,
-                modifier = Modifier.fillMaxHeight()
+                modifier = Modifier
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState())
             ) {
                 // 1. DPF Temperature Before DPF (Accent highlighted when > 500°C)
                 if (settings.showDpfTemp) {
@@ -166,6 +175,79 @@ fun ObdRightBar(
                         iconColor = accent
                     )
                 }
+
+                // 5. Battery / Control Module Voltage (V)
+                if (settings.showVoltage) {
+                    val volts = obdState.voltageVolts
+                    val voltText = volts?.let { String.format(Locale.US, "%.1fV", it) } ?: "--V"
+
+                    ObdGaugeItem(
+                        icon = Icons.Default.Bolt,
+                        valueText = voltText,
+                        label = "VOLTAGE",
+                        valueColor = textColor,
+                        iconColor = accent
+                    )
+                }
+
+                // 6. Fuel Consumption (L/h or L/100km)
+                if (settings.showFuelUsage) {
+                    val fuelEconomy = obdState.fuelEconomyL100km
+                    val fuelRate = obdState.fuelRateLh
+                    val fuelText = fuelEconomy?.let { String.format(Locale.US, "%.1fL", it) }
+                        ?: fuelRate?.let { String.format(Locale.US, "%.1fL/h", it) }
+                        ?: "--L/h"
+
+                    ObdGaugeItem(
+                        icon = Icons.Default.LocalGasStation,
+                        valueText = fuelText,
+                        label = "FUEL",
+                        valueColor = textColor,
+                        iconColor = accent
+                    )
+                }
+
+                // 7. Trip Distance (km)
+                if (settings.showTripDistance) {
+                    val tripKm = obdState.tripDistanceKm
+                    val tripText = String.format(Locale.US, "%.1f km", tripKm)
+
+                    ObdGaugeItem(
+                        icon = Icons.Default.Navigation,
+                        valueText = tripText,
+                        label = "TRIP",
+                        valueColor = textColor,
+                        iconColor = accent
+                    )
+                }
+
+                // 8. Engine RPM
+                if (settings.showEngineRpm) {
+                    val rpm = obdState.engineRpm
+                    val rpmText = rpm?.let { "$it" } ?: "--"
+
+                    ObdGaugeItem(
+                        icon = Icons.Default.Speed,
+                        valueText = rpmText,
+                        label = "RPM",
+                        valueColor = textColor,
+                        iconColor = accent
+                    )
+                }
+
+                // 9. Turbo Boost Pressure (Bar)
+                if (settings.showTurboBoost) {
+                    val boost = obdState.turboBoostBar
+                    val boostText = boost?.let { String.format(Locale.US, "%.1f B", it) } ?: "-- B"
+
+                    ObdGaugeItem(
+                        icon = Icons.Default.Compress,
+                        valueText = boostText,
+                        label = "BOOST",
+                        valueColor = textColor,
+                        iconColor = accent
+                    )
+                }
             }
         }
     }
@@ -179,7 +261,7 @@ private fun ObdGaugeItem(
     valueColor: Color,
     iconColor: Color
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 4.dp)) {
         Icon(
             imageVector = icon,
             contentDescription = label,

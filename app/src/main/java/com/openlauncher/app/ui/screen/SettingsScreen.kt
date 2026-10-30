@@ -49,8 +49,12 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Launch
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.Bolt
+import androidx.compose.material.icons.filled.Compress
 import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.FilterAlt
+import androidx.compose.material.icons.filled.LocalGasStation
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.LocationOff
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.MusicNote
@@ -647,6 +651,56 @@ fun SettingsScreen(
                     Switch(
                         checked         = settings.showCoolantTemp,
                         onCheckedChange = { onUpdate { copy(showCoolantTemp = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show Battery Voltage", sublabel = "Control module voltage in Volts", icon = Icons.Default.Bolt) {
+                    Switch(
+                        checked         = settings.showVoltage,
+                        onCheckedChange = { onUpdate { copy(showVoltage = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show Fuel Usage", sublabel = "Fuel rate in L/h or L/100km", icon = Icons.Default.LocalGasStation) {
+                    Switch(
+                        checked         = settings.showFuelUsage,
+                        onCheckedChange = { onUpdate { copy(showFuelUsage = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show Trip Distance", sublabel = "Resettable trip odometer in km", icon = Icons.Default.Navigation) {
+                    Switch(
+                        checked         = settings.showTripDistance,
+                        onCheckedChange = { onUpdate { copy(showTripDistance = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show Engine RPM", sublabel = "Engine tachometer speed in RPM", icon = Icons.Default.Speed) {
+                    Switch(
+                        checked         = settings.showEngineRpm,
+                        onCheckedChange = { onUpdate { copy(showEngineRpm = it) } },
+                        colors          = switchColors(accent)
+                    )
+                }
+
+                SettingsDivider()
+
+                SettingsRow(label = "Show Turbo Boost", sublabel = "Manifold boost pressure in Bar", icon = Icons.Default.Compress) {
+                    Switch(
+                        checked         = settings.showTurboBoost,
+                        onCheckedChange = { onUpdate { copy(showTurboBoost = it) } },
                         colors          = switchColors(accent)
                     )
                 }

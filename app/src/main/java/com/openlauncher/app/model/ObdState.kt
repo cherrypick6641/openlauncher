@@ -7,6 +7,13 @@ data class ObdState(
     val dpfTemperatureCelsius: Double? = null,
     val distanceSinceRegenKm: Int? = null,
     val coolantTemperatureCelsius: Double? = null,
+    val voltageVolts: Double? = null,
+    val fuelRateLh: Double? = null,
+    val fuelEconomyL100km: Double? = null,
+    val engineRpm: Int? = null,
+    val turboBoostBar: Double? = null,
+    val tripDistanceKm: Double = 0.0,
+    val vehicleSpeedKmh: Int? = null,
     val statusMessage: String? = null,
     val rawFrameDump: String? = null,
     val lastUpdatedMs: Long = 0L

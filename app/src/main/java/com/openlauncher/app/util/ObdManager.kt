@@ -58,6 +58,10 @@ class ObdManager(private val context: Context) {
     private var pendingResetKm: Double? = null
     private var pendingResetCount = 0
 
+    // Trip Distance calculation state
+    private var accumulatedTripKm = 0.0
+    private var lastSpeedPollMs = 0L
+
     companion object {
         private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
@@ -159,6 +163,51 @@ class ObdManager(private val context: Context) {
             if (soot !in 0.0..100.0 || temp !in 0.0..1000.0) return null
 
             return DpfFrame(soot, temp)
+        }
+
+        /** Parses ELM327 AT RV response (e.g. "14.2V" -> 14.2) or PID 01 42 */
+        fun parseVoltageResponse(response: String): Double? {
+            val clean = response.uppercase().replace("V", "").replace(">", "").trim()
+            clean.toDoubleOrNull()?.let { return it.coerceIn(0.0, 30.0) }
+
+            val b = decodeResponse(response) ?: return null
+            if (b.size >= 4 && b[0] == 0x41 && b[1] == 0x42) {
+                val raw = (b[2] shl 8) or b[3]
+                return (raw / 1000.0).coerceIn(0.0, 30.0)
+            }
+            return null
+        }
+
+        /** Standard PID 01 5E: Fuel Rate = ((A * 256) + B) / 20.0 (L/h) */
+        fun parseFuelRateResponse(response: String): Double? {
+            val b = decodeResponse(response) ?: return null
+            if (b.size < 4 || b[0] != 0x41 || b[1] != 0x5E) return null
+            val raw = (b[2] shl 8) or b[3]
+            return (raw / 20.0).coerceIn(0.0, 100.0)
+        }
+
+        /** Standard PID 01 0C: Engine RPM = ((A * 256) + B) / 4 */
+        fun parseEngineRpmResponse(response: String): Int? {
+            val b = decodeResponse(response) ?: return null
+            if (b.size < 4 || b[0] != 0x41 || b[1] != 0x0C) return null
+            val raw = (b[2] shl 8) or b[3]
+            return (raw / 4).coerceIn(0, 10000)
+        }
+
+        /** Standard PID 01 0D: Vehicle Speed = A (km/h) */
+        fun parseVehicleSpeedResponse(response: String): Int? {
+            val b = decodeResponse(response) ?: return null
+            if (b.size < 3 || b[0] != 0x41 || b[1] != 0x0D) return null
+            return b[2].coerceIn(0, 300)
+        }
+
+        /** Standard PID 01 0B: MAP (kPa) -> Turbo Boost (Bar) */
+        fun parseTurboBoostResponse(response: String): Double? {
+            val b = decodeResponse(response) ?: return null
+            if (b.size < 3 || b[0] != 0x41 || b[1] != 0x0B) return null
+            val mapKpa = b[2]
+            val boostBar = (mapKpa - 101) / 100.0
+            return boostBar.coerceIn(0.0, 3.5)
         }
 
         fun toHexString(bytes: List<Int>?): String =
@@ -301,6 +350,10 @@ class ObdManager(private val context: Context) {
                 statusMessage = "CONNECTED"
             )
 
+            // Reset trip odometer on new connection session
+            accumulatedTripKm = 0.0
+            lastSpeedPollMs = System.currentTimeMillis()
+
             while (isActive) {
                 val respCoolant = sendCmd("0105\r")
                 delay(60)
@@ -313,6 +366,39 @@ class ObdManager(private val context: Context) {
                 val rawDistance = parseDistanceFrame(respDist)
                 val distanceKm = rawDistance?.let { acceptDistance(it) }
                 val dpf = parseDpfMainFrame(respDpf)
+
+                // Optional standard metrics polling
+                val respRv = sendCmd("AT RV\r")
+                delay(60)
+                val voltage = parseVoltageResponse(respRv)
+
+                val respFuel = sendCmd("015E\r")
+                delay(60)
+                val fuelRate = parseFuelRateResponse(respFuel)
+
+                val respSpeed = sendCmd("010D\r")
+                delay(60)
+                val speedKmh = parseVehicleSpeedResponse(respSpeed)
+
+                val respRpm = sendCmd("010C\r")
+                delay(60)
+                val rpm = parseEngineRpmResponse(respRpm)
+
+                val respBoost = sendCmd("010B\r")
+                delay(60)
+                val boostBar = parseTurboBoostResponse(respBoost)
+
+                // Update accumulated trip distance
+                val nowMs = System.currentTimeMillis()
+                if (lastSpeedPollMs > 0 && speedKmh != null && speedKmh > 0) {
+                    val deltaHours = (nowMs - lastSpeedPollMs) / 3_600_000.0
+                    accumulatedTripKm += speedKmh * deltaHours
+                }
+                lastSpeedPollMs = nowMs
+
+                val fuelEconomyL100 = if (speedKmh != null && speedKmh > 5 && fuelRate != null) {
+                    (fuelRate / speedKmh.toDouble()) * 100.0
+                } else null
 
                 val rawParts = mutableListOf(
                     "0105:${toHexString(decodeResponse(respCoolant))}",
@@ -331,7 +417,7 @@ class ObdManager(private val context: Context) {
                     context,
                     "OBD Stats -> Coolant:$coolant, DPF Temp:${dpf?.dpfTempCelsius?.let { "%.2f".format(it) }}, " +
                             "Soot:${dpf?.sootGrams?.let { "%.2f".format(it) }}g, " +
-                            "Dist:${distanceKm?.let { "%.3f".format(it) }}km (raw ${rawDistance?.let { "%.3f".format(it) }})"
+                            "Dist:${distanceKm?.let { "%.3f".format(it) }}km, Volt:${voltage}V, RPM:$rpm, Speed:${speedKmh}km/h"
                 )
                 FileLogger.log(context, "OBD Raw -> $rawSummary")
 
@@ -343,6 +429,13 @@ class ObdManager(private val context: Context) {
                     dpfTemperatureCelsius = dpf?.dpfTempCelsius ?: _obdState.value.dpfTemperatureCelsius,
                     sootGrams = dpf?.sootGrams ?: _obdState.value.sootGrams,
                     distanceSinceRegenKm = distanceKm?.roundToInt() ?: _obdState.value.distanceSinceRegenKm,
+                    voltageVolts = voltage ?: _obdState.value.voltageVolts,
+                    fuelRateLh = fuelRate ?: _obdState.value.fuelRateLh,
+                    fuelEconomyL100km = fuelEconomyL100 ?: _obdState.value.fuelEconomyL100km,
+                    engineRpm = rpm ?: _obdState.value.engineRpm,
+                    turboBoostBar = boostBar ?: _obdState.value.turboBoostBar,
+                    tripDistanceKm = accumulatedTripKm,
+                    vehicleSpeedKmh = speedKmh ?: _obdState.value.vehicleSpeedKmh,
                     statusMessage = "CONNECTED",
                     rawFrameDump = rawSummary,
                     lastUpdatedMs = System.currentTimeMillis()
