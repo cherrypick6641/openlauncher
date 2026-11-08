@@ -71,6 +71,20 @@ class SettingsRepository(private val context: Context) {
         val SHOW_TRAFFIC  = booleanPreferencesKey("show_traffic")
         val AUTOSTART_PACKAGES_JSON = stringPreferencesKey("autostart_packages_json")
         val AUTOSTART_DELAY = intPreferencesKey("autostart_delay")
+        val SIDEBAR_WIDTH_DP     = intPreferencesKey("sidebar_width_dp")
+        val BOTTOM_BAR_HEIGHT_DP = intPreferencesKey("bottom_bar_height_dp")
+        val PLAY_MEDIA_ON_BOOT   = booleanPreferencesKey("play_media_on_boot")
+        val OBD_ENABLED          = booleanPreferencesKey("obd_enabled")
+        val OBD_DEVICE_ADDRESS   = stringPreferencesKey("obd_device_address")
+        val OBD_DEVICE_NAME      = stringPreferencesKey("obd_device_name")
+        val OBD_RIGHT_BAR_WIDTH_DP = intPreferencesKey("obd_right_bar_width_dp")
+        val SHOW_SOOT_LEVEL      = booleanPreferencesKey("show_soot_level")
+        val SHOW_DPF_TEMP        = booleanPreferencesKey("show_dpf_temp")
+        val SHOW_LAST_REGEN_DIST = booleanPreferencesKey("show_last_regen_dist")
+        val SHOW_COOLANT_TEMP    = booleanPreferencesKey("show_coolant_temp")
+        val SHOW_VOLTAGE         = booleanPreferencesKey("show_voltage")
+        val SHOW_TRIP_DISTANCE   = booleanPreferencesKey("show_trip_distance")
+        val SHOW_ENGINE_RPM      = booleanPreferencesKey("show_engine_rpm")
     }
 
     val settingsFlow: Flow<AppSettings> = context.dataStore.data
@@ -97,7 +111,6 @@ class SettingsRepository(private val context: Context) {
                         object : TypeToken<List<WidgetConfig>>() {}.type
                     )
                 }.getOrNull() ?: defaults.widgetLayout
-                // Migrate: old 2×2 layout has no widget with gridX≥2 — replace with new 3×2 default
                 if (loaded.none { it.gridX >= 2 }) defaults.widgetLayout else loaded
             } else defaults.widgetLayout
 
@@ -155,7 +168,21 @@ class SettingsRepository(private val context: Context) {
                         gson.fromJson<List<String>>(it, object : TypeToken<List<String>>() {}.type)
                     }.getOrNull()
                 } ?: listOfNotNull(prefs[stringPreferencesKey("autostart_package")]),
-                autostartDelay = prefs[Keys.AUTOSTART_DELAY] ?: defaults.autostartDelay
+                autostartDelay = prefs[Keys.AUTOSTART_DELAY] ?: defaults.autostartDelay,
+                sidebarWidthDp    = prefs[Keys.SIDEBAR_WIDTH_DP]    ?: defaults.sidebarWidthDp,
+                bottomBarHeightDp = prefs[Keys.BOTTOM_BAR_HEIGHT_DP] ?: defaults.bottomBarHeightDp,
+                playMediaOnBoot   = prefs[Keys.PLAY_MEDIA_ON_BOOT]   ?: defaults.playMediaOnBoot,
+                obdEnabled        = prefs[Keys.OBD_ENABLED]          ?: defaults.obdEnabled,
+                obdDeviceAddress   = prefs[Keys.OBD_DEVICE_ADDRESS]   ?: defaults.obdDeviceAddress,
+                obdDeviceName      = prefs[Keys.OBD_DEVICE_NAME]      ?: defaults.obdDeviceName,
+                obdRightBarWidthDp = prefs[Keys.OBD_RIGHT_BAR_WIDTH_DP] ?: defaults.obdRightBarWidthDp,
+                showSootLevel      = prefs[Keys.SHOW_SOOT_LEVEL]      ?: defaults.showSootLevel,
+                showDpfTemp        = prefs[Keys.SHOW_DPF_TEMP]        ?: defaults.showDpfTemp,
+                showLastRegenDist = prefs[Keys.SHOW_LAST_REGEN_DIST] ?: defaults.showLastRegenDist,
+                showCoolantTemp    = prefs[Keys.SHOW_COOLANT_TEMP]    ?: defaults.showCoolantTemp,
+                showVoltage        = prefs[Keys.SHOW_VOLTAGE]         ?: defaults.showVoltage,
+                showTripDistance   = prefs[Keys.SHOW_TRIP_DISTANCE]   ?: defaults.showTripDistance,
+                showEngineRpm      = prefs[Keys.SHOW_ENGINE_RPM]      ?: defaults.showEngineRpm
             )
     }
 
@@ -217,6 +244,20 @@ class SettingsRepository(private val context: Context) {
             prefs[Keys.SHOW_TRAFFIC]  = s.showTraffic
             prefs[Keys.AUTOSTART_PACKAGES_JSON] = gson.toJson(s.autostartPackages)
             prefs[Keys.AUTOSTART_DELAY] = s.autostartDelay
+            prefs[Keys.SIDEBAR_WIDTH_DP]     = s.sidebarWidthDp
+            prefs[Keys.BOTTOM_BAR_HEIGHT_DP] = s.bottomBarHeightDp
+            prefs[Keys.PLAY_MEDIA_ON_BOOT]   = s.playMediaOnBoot
+            prefs[Keys.OBD_ENABLED]          = s.obdEnabled
+            prefs[Keys.OBD_DEVICE_ADDRESS]   = s.obdDeviceAddress
+            prefs[Keys.OBD_DEVICE_NAME]      = s.obdDeviceName
+            prefs[Keys.OBD_RIGHT_BAR_WIDTH_DP] = s.obdRightBarWidthDp
+            prefs[Keys.SHOW_SOOT_LEVEL]      = s.showSootLevel
+            prefs[Keys.SHOW_DPF_TEMP]        = s.showDpfTemp
+            prefs[Keys.SHOW_LAST_REGEN_DIST] = s.showLastRegenDist
+            prefs[Keys.SHOW_COOLANT_TEMP]    = s.showCoolantTemp
+            prefs[Keys.SHOW_VOLTAGE]         = s.showVoltage
+            prefs[Keys.SHOW_TRIP_DISTANCE]   = s.showTripDistance
+            prefs[Keys.SHOW_ENGINE_RPM]      = s.showEngineRpm
     }
 
     suspend fun resetToDefaults() {

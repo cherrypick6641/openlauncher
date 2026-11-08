@@ -109,7 +109,21 @@ data class AppSettings(
     val mapType: MapType = MapType.ROADMAP,
     val showTraffic: Boolean = false,
     val autostartPackages: List<String> = emptyList(),
-    val autostartDelay: Int = 2
+    val autostartDelay: Int = 2,
+    val sidebarWidthDp: Int = 70,
+    val bottomBarHeightDp: Int = 70,
+    val playMediaOnBoot: Boolean = false,
+    val obdEnabled: Boolean = false,
+    val obdDeviceAddress: String = "",
+    val obdDeviceName: String = "",
+    val obdRightBarWidthDp: Int = 80,
+    val showSootLevel: Boolean = true,
+    val showDpfTemp: Boolean = true,
+    val showLastRegenDist: Boolean = true,
+    val showCoolantTemp: Boolean = true,
+    val showVoltage: Boolean = true,
+    val showTripDistance: Boolean = true,
+    val showEngineRpm: Boolean = false
 )
 
 fun defaultShortcuts() = listOf(

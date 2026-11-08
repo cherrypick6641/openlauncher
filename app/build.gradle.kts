@@ -13,8 +13,8 @@ android {
         applicationId  = "com.openlauncher.app"
         minSdk         = 21
         targetSdk      = 36
-        versionCode    = 18
-        versionName    = "1.5.4"
+        versionCode    = 38
+        versionName    = "2.2.2"
     }
 
     signingConfigs {
@@ -33,7 +33,8 @@ android {
             signingConfig = signingConfigs.getByName("aosp")
         }
         release {
-            isMinifyEnabled = false
+            isMinifyEnabled = true
+            isShrinkResources = true
             signingConfig = signingConfigs.getByName("aosp")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -92,4 +93,7 @@ dependencies {
     implementation("org.osmdroid:osmdroid-android:6.1.18")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Testing
+    testImplementation("junit:junit:4.13.2")
 }

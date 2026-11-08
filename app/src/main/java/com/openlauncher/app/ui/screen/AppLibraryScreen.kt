@@ -1,5 +1,6 @@
 package com.openlauncher.app.ui.screen
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +24,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -42,7 +44,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.painter.BitmapPainter
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -64,6 +65,7 @@ fun AppLibraryScreen(
     onAppClick: (AppInfo) -> Unit,
     onPickerSelect: (Int, AppInfo) -> Unit,
     onCarPlaySelect: (AppInfo) -> Unit,
+    onOpenSettings: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val isDayMode     = LocalDayMode.current
@@ -75,8 +77,6 @@ fun AppLibraryScreen(
     val fieldTextC    = MaterialTheme.colorScheme.onBackground
     val fieldBorderU  = if (isDayMode) Color(0xFFCCCCCC) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.2f)
 
-    val context = LocalContext.current
-    val packageManager = context.packageManager
     val anyPickerMode = isPickerMode || isCarPlayPickerMode
     var query by remember { mutableStateOf("") }
 
@@ -149,7 +149,7 @@ fun AppLibraryScreen(
             return@Column
         }
 
-        if (filtered.isEmpty()) {
+        if (filtered.isEmpty() && (anyPickerMode || query.isNotEmpty())) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text("No apps found", color = emptyColor, letterSpacing = 1.sp, fontSize = 12.sp)
             }
@@ -164,6 +164,16 @@ fun AppLibraryScreen(
             verticalArrangement   = Arrangement.spacedBy(12.dp),
             modifier              = Modifier.fillMaxSize()
         ) {
+            // Settings Tile at the very beginning (Index 0) in non-picker mode
+            if (!anyPickerMode && query.isEmpty()) {
+                item(key = "SETTINGS_TILE") {
+                    SettingsTile(
+                        accent = accent,
+                        onClick = onOpenSettings
+                    )
+                }
+            }
+
             items(filtered, key = { it.packageName }) { app ->
                 AppTile(
                     app     = app,
@@ -178,6 +188,48 @@ fun AppLibraryScreen(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun SettingsTile(
+    accent: Color,
+    onClick: () -> Unit
+) {
+    val isDayMode  = LocalDayMode.current
+    val tileBg     = if (isDayMode) Color(0xFFFFFFFF) else Color(0xFF0B0B0B)
+    val tileBorder = if (isDayMode) Color(0xFFCCCCCC) else Color(0xFF1A1A1A)
+    val tileShape  = MaterialTheme.shapes.medium
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = Modifier
+            .aspectRatio(1f)
+            .clip(tileShape)
+            .background(tileBg)
+            .border(1.dp, tileBorder, tileShape)
+            .clickable(onClick = onClick)
+            .padding(10.dp)
+    ) {
+        Box(Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Default.Settings,
+                contentDescription = "Settings",
+                tint = accent,
+                modifier = Modifier.size(36.dp)
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text          = "SETTINGS",
+            style         = MaterialTheme.typography.labelSmall,
+            color         = if (isDayMode) Color(0xFF666666) else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.7f),
+            maxLines      = 1,
+            overflow      = TextOverflow.Ellipsis,
+            textAlign     = TextAlign.Center,
+            letterSpacing = 1.sp,
+            fontSize      = 10.sp
+        )
     }
 }
 
@@ -206,7 +258,7 @@ private fun AppTile(
             try { app.icon.toBitmap(80, 80) } catch (_: Exception) { null }
         }
         if (bmp != null) {
-            androidx.compose.foundation.Image(
+            Image(
                 painter            = BitmapPainter(bmp.asImageBitmap()),
                 contentDescription = app.appName,
                 modifier           = Modifier.size(52.dp)
